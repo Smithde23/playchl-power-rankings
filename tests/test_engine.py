@@ -7,7 +7,7 @@ from sources import parse_schedule
 
 class RankingTests(unittest.TestCase):
     def test_schedule(self):
-        txt='Nov 5 1:00 AM UTC SEA Away 4-3 DET Home Final Nov 5 1:35 AM UTC ANA Away 0-1 BUF Home Forfeit'
+        txt='Nov 5 1:00 AM UTC REG SEA Away 4-3 DET Home Final Nov 5 1:35 AM UTC REG ANA Away 0-1 BUF Home Forfeit'
         data=parse_schedule(txt,datetime(2026,11,13,tzinfo=timezone.utc))
         self.assertEqual(len(data),2)
         self.assertEqual(data[1]['status'],'Forfeit')
