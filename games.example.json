@@ -1,0 +1,5 @@
+[
+  {"id":"sample-001","date":"2026-11-12T01:00:00Z","away":"WSH","home":"BUF","away_score":4,"home_score":3,"status":"Final"},
+  {"id":"sample-002","date":"2026-11-13T02:10:00Z","away":"WSH","home":"ANA","away_score":2,"home_score":5,"status":"Final"},
+  {"id":"sample-003","date":"2026-11-14T01:00:00Z","away":"SEA","home":"MIN","away_score":1,"home_score":0,"status":"Forfeit"}
+]
