@@ -2,6 +2,7 @@
 Optional GAMES_JSON_URL supports a durable league-owned JSON data feed.
 """
 import json
+import logging
 import os
 import re
 from datetime import datetime,timezone,timedelta
@@ -9,6 +10,7 @@ from urllib.request import Request,urlopen
 from zoneinfo import ZoneInfo
 from playwright.async_api import async_playwright
 
+log=logging.getLogger('playchl.schedule')
 MONTH={m:i+1 for i,m in enumerate('Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec'.split())}
 TEAM='ANA|BUF|CGY|DET|MIN|SEA|SJS|UTAH|VGK|WSH'
 ROW=re.compile(r'(?P<mon>Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(?P<day>\d{1,2})\s+(?P<clock>\d{1,2}:\d{2})\s*(?P<ampm>AM|PM)\s*UTC\s+(?P<away>'+TEAM+r')\s+Away\s+(?P<a>\d+)\s*[-–:]\s*(?P<h>\d+)\s+(?P<home>'+TEAM+r')\s+Home\s+(?P<status>Forfeit|Final(?:\s*/\s*OT)?)',re.I)
@@ -55,6 +57,11 @@ async def fetch_games():
             await page.wait_for_timeout(3000)
             raw=await page.locator('body').inner_text(timeout=20000)
             games=parse_schedule(raw)
+            if not games:
+                log.warning('PlayCHL page debug URL=%s title=%s body excerpt=%r',page.url,await page.title(),raw[:2400])
+                text_content=await page.locator('body').text_content(timeout=20000)
+                log.warning('PlayCHL body textContent excerpt=%r', (text_content or '')[:1500])
+                games=parse_schedule(text_content or '')
             if not games:
                 raise RuntimeError('No final scores parsed from PlayCHL schedule. Inspect site markup or use GAMES_JSON_URL / /powerimport.')
             return games
