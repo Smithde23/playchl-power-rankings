@@ -113,7 +113,13 @@ def extract_box(text,g):
         for name in NAMES[abbreviation]:
             for m in re.finditer(re.escape(name),data.upper()):
                 marks.append((m.start(),abbreviation,m.end()))
-    marks.sort()
+    # Overlapping aliases (e.g. "UTAH" and "UTAH MAMMOTH") are collapsed.
+    marks.sort(key=lambda x:(x[0],-(x[2]-x[0])))
+    dedup=[]
+    for mark in marks:
+        if dedup and mark[0]<dedup[-1][2]:continue
+        dedup.append(mark)
+    marks=dedup
     parts=[]
     for i,(start,team,after) in enumerate(marks):
         finish=marks[i+1][0] if i+1<len(marks) else len(data)
