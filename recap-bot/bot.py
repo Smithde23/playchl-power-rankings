@@ -10,6 +10,7 @@ from PIL import Image,ImageDraw,ImageFont
 from dotenv import load_dotenv
 from stats import discover_schedule_links,fetch_box,noteworthy
 from video import render as render_video
+from chelhead import fetch_fallback
 load_dotenv();logging.basicConfig(level=logging.INFO);log=logging.getLogger("chl.recaps")
 TEAMS={"ANA":"Anaheim","BUF":"Buffalo","CGY":"Calgary","DET":"Detroit","MIN":"Minnesota","SEA":"Seattle","SJS":"San Jose","UTAH":"Utah","VGK":"Vegas","WSH":"Washington"}
 MON={m:i+1 for i,m in enumerate("Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split())}
@@ -247,6 +248,15 @@ async def post(gid):
                             with conn() as c:
                                 c.execute("UPDATE box_cache SET box_json=?,updated_at=? WHERE game_id=?",(__import__("json").dumps(box),datetime.now(timezone.utc).isoformat(),gid));c.commit()
                     except Exception as exc:log.warning("Boxscore fetch failed: %s",exc)
+        if box is None and g["status"]=="Final":
+            try:
+                box=await asyncio.wait_for(fetch_fallback(g),timeout=65)
+                if box:
+                    with conn() as c:
+                        c.execute("INSERT OR REPLACE INTO box_cache(game_id,game_url,box_json,updated_at) VALUES(?,?,?,?)",
+                                  (gid,box["url"],__import__("json").dumps(box),datetime.now(timezone.utc).isoformat()))
+                        c.commit()
+            except Exception as exc:log.warning("CHEL HEAD fallback failed for %s: %s",gid,exc)
         body=article(g,history,box);audio=None
         try:audio=await asyncio.wait_for(narrate(voice_story(g,box)),timeout=50)
         except Exception as exc:log.warning("Narration failed for %s: %s",gid,exc)
