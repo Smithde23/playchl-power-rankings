@@ -109,7 +109,7 @@ def article(g,history,box=None):
         TEAMS[win]+" entered at "+str(wr[0])+"–"+str(wr[1])+" and "+TEAMS[lose]+" at "+str(lr[0])+"–"+str(lr[1])+
         ". The imported schedule shows "+str(h2h)+" earlier verified meeting(s) between these clubs. "+
         "Those figures describe the games currently imported, not necessarily official full-season standings.\n\n"+
-        "The result now becomes part both teams\' recorded schedules.")
+        "The result now becomes part of both teams\' recorded schedules.")
     return cinematic(g,box,base)
 
 def cinematic(g,box,base):
@@ -190,7 +190,7 @@ def script(g,box=None):
         return "CHL scoreboard update. "+TEAMS[win]+" receives a "+str(x)+" to "+str(y)+" forfeit result against "+TEAMS[lose]+". This is an administrative decision, not a played-game highlight."
     return ("It's time for your CHL postgame report! "+TEAMS[win]+" takes the win over "+TEAMS[lose]+", "+
             str(x)+" to "+str(y)+"! A "+str(x-y)+"-goal margin at the final horn. That's the verified final score from PlayCHL. We'll see what both teams bring to the next matchup!")
-def graphic(g):
+def graphic(g,box=None):
     im=Image.new("RGB",(1200,675),"#081725");d=ImageDraw.Draw(im)
     f="/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
     big=ImageFont.truetype(f,88);medium=ImageFont.truetype(f,32);small=ImageFont.truetype(f,22)
@@ -203,6 +203,13 @@ def graphic(g):
     d.text((100,320),TEAMS[g["away"]].upper(),font=medium,fill="#a8d1e8")
     d.text((825,320),TEAMS[g["home"]].upper(),font=medium,fill="#a8d1e8")
     d.text((500,405),g["status"].upper(),font=medium,fill="white")
+    if box:
+        top=noteworthy(box,"WSH")
+        if top:
+            p=top[0];s=p["stats"]
+            description=p["name"]+"  |  "+s.get("G","0")+" G  "+s.get("A","0")+" A  "+s.get("P","0")+" P"
+            d.rounded_rectangle((90,480,1110,544),radius=13,fill="#264a67")
+            d.text((115,496),"CAPITALS SPOTLIGHT: "+description[:64],font=small,fill="#fff3d2")
     d.text((65,604),datetime.fromisoformat(g["date"]).astimezone(ET).strftime("%b %d, %Y")+"   |   playchl.com",font=small,fill="#b7dbef")
     stream=io.BytesIO();im.save(stream,format="PNG");return stream.getvalue()
 async def narrate(txt):
@@ -247,7 +254,7 @@ async def post(gid):
         e.set_image(url="attachment://recap.png")
         if box and box.get("url"):e.add_field(name="Verified box score",value="[Game stats on PlayCHL]("+box["url"]+")",inline=False)
         e.set_footer(text="PlayCHL result-based report • No invented statistics or play-by-play")
-        attachments=[discord.File(io.BytesIO(graphic(g)),filename="recap.png")]
+        attachments=[discord.File(io.BytesIO(graphic(g,box)),filename="recap.png")]
         if audio:attachments.append(discord.File(io.BytesIO(audio),filename="recap-narration.mp3"))
         elif AUDIO:e.add_field(name="Audio",value="Narration service unavailable; the written recap is provided above.")
         message=await channel.send(embed=e,files=attachments,allowed_mentions=discord.AllowedMentions.none())
