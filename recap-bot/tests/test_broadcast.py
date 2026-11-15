@@ -3,7 +3,7 @@ import shutil
 import subprocess
 import unittest
 
-from broadcast import make_dialogue,print_transcript,audio_text,_join_mp3,voice_pair
+from broadcast import make_dialogue,print_transcript,audio_text,_join_mp3,voice_pair,PAIRS
 from test_story import GAME,BOX
 
 class BroadcastTests(unittest.TestCase):
@@ -48,9 +48,32 @@ class BroadcastTests(unittest.TestCase):
             self.assertIn("Buckley0306",audio_text(lines))
 
     def test_original_voices_are_distinct(self):
-        for i in range(3):
+        female_analysts=0
+        male_analysts=0
+        for i in range(len(PAIRS)):
             primary,analyst=voice_pair(i)
             self.assertNotEqual(primary,analyst)
+            if analyst in ("en-US-JennyNeural","en-US-AriaNeural"):
+                female_analysts+=1
+            else:male_analysts+=1
+        self.assertGreaterEqual(female_analysts,2)
+        self.assertGreaterEqual(male_analysts,1)
+
+    def test_extended_player_analysis_stays_factually_grounded(self):
+        complete={"players":[
+            {"team":"WSH","name":"Buckley0306","pos":"C","stats":{"G":"2","A":"3","P":"5","SH":"0"}},
+            {"team":"WSH","name":"Reqhzii","pos":"RW","stats":{"G":"2","A":"1","P":"3","SH":"7"}},
+            {"team":"WSH","name":"KASKADE_420","pos":"RD","stats":{"G":"2","A":"0","P":"2","SH":"3"}},
+            {"team":"WSH","name":"Charlielucia13","pos":"G","stats":{"SV":"13"}},
+            {"team":"UTAH","name":"OffsKripT I72I","pos":"LW","stats":{"G":"4","A":"3","P":"7","SH":"7"}},
+            {"team":"UTAH","name":"IIM PETER","pos":"C","stats":{"G":"1","A":"3","P":"4","SH":"4"}}
+        ],"match":{}}
+        lines=make_dialogue(GAME,complete,style="player_first",rng=random.Random(9))
+        speech=audio_text(lines)
+        for name in ("Buckley0306","Reqhzii","KASKADE_420","Charlielucia13","OffsKripT I72I","IIM PETER"):
+            self.assertIn(name,speech)
+        self.assertGreaterEqual(len(lines),16)
+        self.assertTrue(all(a!=b for a,b in zip([x[0] for x in lines],[x[0] for x in lines][1:])))
 
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),"ffmpeg tools unavailable")
     def test_two_speaker_audio_segments_join_into_valid_mp3(self):
