@@ -62,7 +62,7 @@ def card_candidates(cards,g):
         ordered=(r"(?:CHL27\s+)?(?:"+away_alias+r")\s+"+str(g["a"])
                  +r"\s+at\s+(?:CHL27\s+)?(?:"+home_alias+r")\s+"+str(g["h"])+r"\b")
         # JS card text is already collapsed; normalize to uppercase.
-        if not re.search(ordered,text.upper()):continue
+        if not re.search(ordered,text.upper(),re.I):continue
         age=minutes_ago(text)
         if age is None:continue
         when=datetime.now(ET)-timedelta(minutes=age)
