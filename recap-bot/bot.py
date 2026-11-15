@@ -1,4 +1,4 @@
-import asyncio,io,os,re,sqlite3,hashlib,logging
+import asyncio,io,os,re,sqlite3,hashlib,logging,random
 from pathlib import Path
 from datetime import datetime,timezone
 from zoneinfo import ZoneInfo
@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 from stats import discover_schedule_links,fetch_box,noteworthy
 from video import render as render_video
 from chelhead import fetch_fallback
+from story import build_narration,select_style,select_voice
 load_dotenv();logging.basicConfig(level=logging.INFO);log=logging.getLogger("chl.recaps")
 TEAMS={"ANA":"Anaheim","BUF":"Buffalo","CGY":"Calgary","DET":"Detroit","MIN":"Minnesota","SEA":"Seattle","SJS":"San Jose","UTAH":"Utah","VGK":"Vegas","WSH":"Washington"}
 MON={m:i+1 for i,m in enumerate("Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split())}
@@ -244,10 +245,10 @@ def graphic(g,box=None):
             d.text((115,496),"CAPITALS SPOTLIGHT: "+description[:64],font=small,fill="#fff3d2")
     d.text((65,604),datetime.fromisoformat(g["date"]).astimezone(ET).strftime("%b %d, %Y")+"   |   playchl.com",font=small,fill="#b7dbef")
     stream=io.BytesIO();im.save(stream,format="PNG");return stream.getvalue()
-async def narrate(txt):
+async def narrate(txt,voice=None,rate="+4%",pitch="-2Hz"):
     if not AUDIO:return None
     chunks=[]
-    async for chunk in edge_tts.Communicate(txt,voice=VOICE).stream():
+    async for chunk in edge_tts.Communicate(txt,voice=voice or VOICE,rate=rate,pitch=pitch).stream():
         if chunk["type"]=="audio":chunks.append(chunk["data"])
     data=b"".join(chunks)
     return data if 400<len(data)<7_000_000 else None
@@ -287,9 +288,28 @@ async def post(gid,force=False):
                                   (gid,box["url"],__import__("json").dumps(box),datetime.now(timezone.utc).isoformat()))
                         c.commit()
             except Exception as exc:log.warning("CHEL HEAD fallback failed for %s: %s",gid,exc)
-        body=article(g,history,box);audio=None
-        try:audio=await asyncio.wait_for(narrate(voice_story(g,box)),timeout=50)
-        except Exception as exc:log.warning("Narration failed for %s: %s",gid,exc)
+        with conn() as c:
+            prev=c.execute("SELECT v FROM meta WHERE k='last_story_style'").fetchone()
+        style=select_style(prev["v"] if prev else None)
+        narrated,style=build_narration(g,box,style=style)
+        body=article(g,history,box)
+        # The written story follows the same unique angle as the broadcast voice.
+        if g["status"]!="Forfeit":
+            body="**TONIGHT'S CAPITALS STORY**\n"+narrated+"\n\n"+body
+        body=body[:4050]
+        audio=None
+        chosen_voice=select_voice(preferred=os.getenv("TTS_VOICE_OVERRIDE") or None)
+        rate=random.choice(("+1%","+3%","+5%","+7%"))
+        pitch=random.choice(("-4Hz","-2Hz","+0Hz"))
+        try:
+            audio=await asyncio.wait_for(narrate(narrated,voice=chosen_voice,rate=rate,pitch=pitch),timeout=75)
+            if not audio:log.warning("Narration returned no audio for %s voice %s",gid,chosen_voice)
+        except Exception as exc:
+            log.warning("Narration voice %s failed for %s: %s; trying default voice",chosen_voice,gid,exc)
+            try:audio=await asyncio.wait_for(narrate(narrated,voice=VOICE),timeout=55)
+            except Exception as fallback_exc:log.warning("Fallback narration failed: %s",fallback_exc)
+        log.info("Game %s story style %s voice %s rate %s pitch %s audio=%s",
+                 gid,style,chosen_voice,rate,pitch,bool(audio))
         channel=bot.get_channel(CHANNEL) or await bot.fetch_channel(CHANNEL)
         e=discord.Embed(title="CHL RECAP | "+g["away"]+" "+str(g["a"])+" – "+str(g["h"])+" "+g["home"],description=body,color=0x1698CE)
         e.set_image(url="attachment://recap.png")
@@ -304,7 +324,9 @@ async def post(gid,force=False):
         elif not audio and AUDIO:e.add_field(name="Audio",value="Narration service unavailable; the written recap is provided above.")
         message=await channel.send(embed=e,files=attachments,allowed_mentions=discord.AllowedMentions.none())
         with conn() as c:
-            c.execute("UPDATE games SET posted=?,post_id=? WHERE id=?",(datetime.now(timezone.utc).isoformat(),str(message.id),gid));c.commit()
+            c.execute("UPDATE games SET posted=?,post_id=? WHERE id=?",(datetime.now(timezone.utc).isoformat(),str(message.id),gid))
+            c.execute("INSERT OR REPLACE INTO meta(k,v) VALUES('last_story_style',?)",(style,))
+            c.commit()
         return "Recap posted for "+g["away"]+" vs "+g["home"]
 async def refresh():
     data=await scrape()
