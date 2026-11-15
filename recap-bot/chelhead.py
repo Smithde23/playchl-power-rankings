@@ -100,65 +100,61 @@ async def clickable_cards(page):
     }""")
 
 def extract_box(text,g):
-    """Parse skater and goalie table rows from visible popup text, with team partitions."""
+    """Parse CHEL HEAD's real visible Players tab, including accessible labels.
+
+    Team sections are marked by club name, score, and win/loss. Each player
+    must appear inside its team's section, with a validated G + A = P total.
+    This code never treats the players from a different club as Washington.
+    """
     raw=clean(text)
-    if not ("WASHINGTON CAPITALS" in raw.upper() and rival_code(raw,g)):return None
-    a=g["a"];h=g["h"]
-    # Score confirmation requires the title order with WSH as home or away.
     opponent=g["home"] if g["away"]=="WSH" else g["away"]
-    w=a if g["away"]=="WSH" else h
-    o=h if g["away"]=="WSH" else a
-    up=raw.upper()
-    title_match=False
-    for name in NAMES[opponent]:
-        # header may interpose division label; allow up to 65 chars between.
-        if re.search(r"WASHINGTON CAPITALS.{0,100}\b"+str(w)+r"\s*[-–]\s*"+str(o)+r"\b.{0,100}"+re.escape(name),up):
-            title_match=True
-        if re.search(re.escape(name)+r".{0,100}\b"+str(o)+r"\s*[-–]\s*"+str(w)+r"\b.{0,100}WASHINGTON CAPITALS",up):
-            title_match=True
-    # Screenshots show score in modal heading, so enforce it rather than attach
-    # stats from coincidental same-score recent matches.
-    if not title_match:return None
-    players_at=up.find("PLAYERS")
-    if players_at<0:return None
-    data=raw[players_at:]
-    # Team sections are headed by full club names. Keep each team's rows isolated.
-    marks=[]
-    for abbreviation in ("WSH",opponent):
-        for name in NAMES[abbreviation]:
-            for m in re.finditer(re.escape(name),data.upper()):
-                marks.append((m.start(),abbreviation,m.end()))
-    # Overlapping aliases (e.g. "UTAH" and "UTAH MAMMOTH") are collapsed.
-    marks.sort(key=lambda x:(x[0],-(x[2]-x[0])))
-    dedup=[]
-    for mark in marks:
-        if dedup and mark[0]<dedup[-1][2]:continue
-        dedup.append(mark)
-    marks=dedup
-    parts=[]
-    for i,(start,team,after) in enumerate(marks):
-        finish=marks[i+1][0] if i+1<len(marks) else len(data)
-        seg=data[after:finish]
-        if "PLAYER" in seg.upper() or "GOALIES" in seg.upper():
-            parts.append((team,seg))
+    away,home=g["away"],g["home"]
+    if "WASHINGTON CAPITALS" not in raw.upper() or not rival_code(raw,g):return None
+    # The selected match card has already been checked for ordered home-away
+    # matchup and date. Verify the report repeats both exact team scores.
+    markers=[]
+    for club,expected in ((away,g["a"]),(home,g["h"])):
+        options=NAMES[club]
+        matches=[]
+        for alias in options:
+            exp=r"(?:CHL27\s+)?"+re.escape(alias)+r"\s+(?:"+r"DIV\s+\d+\s+)?" +str(expected)+r"\s+[WL]\b"
+            matches.extend(re.finditer(exp,raw,re.I))
+        if not matches:return None
+        first=min(matches,key=lambda x:x.start())
+        markers.append((first.start(),first.end(),club))
+    markers.sort()
+    if markers[0][0]==markers[1][0]:return None
+    sections={}
+    for i,(start,end,club) in enumerate(markers):
+        until=markers[i+1][0] if i+1<len(markers) else len(raw)
+        sections[club]=raw[end:until]
+    numeric=r"([+-]?\d+(?:\.\d+)?)"
+    skater=re.compile(
+        r"(?:^|\s)(C|RW|LW|LD|RD)\s+"
+        r"(?:(?:1st|2nd|3rd)\s+Star,\s*)?"
+        r"(.{2,72}?)\s*,\s*"
+        r"(?:Center|Right Wing|Left Wing|Left Defense|Right Defense)\s+"
+        +r"\s+".join([numeric]*10)+r"(?=\s|$)",re.I)
+    goalie=re.compile(
+        r"(?:^|\s)G\s+(.{2,72}?)\s+(0\.\d+|1\.000)\s+"
+        +r"\s+".join([numeric]*4)+r"(?=\s|$)",re.I)
     players=[]
-    for team,section in parts:
-        for m in SKATER.finditer(section):
-            pos,name,*vals=m.groups()
-            # G,A,P,+/-,SH,HIT,BLK,TK,GV,star rating
-            nums={k:v for k,v in zip(("G","A","P","+/-","SH","HIT","BLK","TK","GV","SCORE"),vals)}
-            if int(float(nums["G"]))+int(float(nums["A"]))!=int(float(nums["P"])):
-                continue
-            if float(nums["G"])>g["a"]+g["h"]:continue
-            players.append({"name":name,"team":team,"pos":pos.upper(),"stats":nums})
-        for m in GOALIE.finditer(section):
-            name,*vals=m.groups()
-            sv,gaa,saves,against,score=vals
-            if float(saves)>float(against):continue
-            players.append({"name":name,"team":team,"pos":"G","stats":{"SV%":sv,"GAA":gaa,"SV":saves,"SA":against,"SCORE":score}})
-    if not any(p["team"]=="WSH" for p in players):return None
-    # A real boxscore must be internally consistent for skaters when all skaters
-    # are visible; partial extraction cannot prove goals, but never invents stats.
+    for team,section in sections.items():
+        for match in skater.finditer(section):
+            pos,name,*values=match.groups()
+            if "PLAYER" in name.upper() or "GOALIES" in name.upper():continue
+            stats=dict(zip(("G","A","P","+/-","SH","HIT","BLK","TK","GV","SCORE"),values))
+            if int(float(stats["G"]))+int(float(stats["A"]))!=int(float(stats["P"])):continue
+            team_goals=g["a"] if team==away else g["h"]
+            if int(float(stats["G"]))>team_goals:continue
+            players.append({"name":name.strip(),"team":team,"pos":pos.upper(),"stats":stats})
+        for match in goalie.finditer(section):
+            name,rate,gaa,saves,against,score=match.groups()
+            if "GOALIES" in name.upper() or float(saves)>float(against):continue
+            players.append({"name":name.strip(),"team":team,"pos":"G",
+                            "stats":{"SV%":rate,"GAA":gaa,"SV":saves,"SA":against,"SCORE":score}})
+    skaters=[p for p in players if p["pos"]!="G"]
+    if not any(p["team"]=="WSH" for p in skaters):return None
     unique={(p["team"],p["name"],p["pos"]):p for p in players}
     return {"url":URL,"source":"chelhead","players":list(unique.values()),"match":{}}
 
