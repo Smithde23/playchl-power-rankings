@@ -147,39 +147,140 @@ def seconds(path):
                           "-of","json",str(path)],capture_output=True,text=True,check=True,timeout=10)
     return float(json.loads(result.stdout)["format"]["duration"])
 
+def action_frame(game,card,frame_index,total_frames,analyst_female=False):
+    """Original animated ice-hockey B-roll, not an actual CHL game clip.
+
+    Each frame is drawn from scratch: skaters, sticks, puck, ice, camera
+    motion, score ribbon and a small two-host inset. This supplies genuine
+    moving video without attributing a simulated play to a real participant.
+    """
+    t=frame_index/12.0
+    im=Image.new("RGB",(W,H),(6,17,33))
+    d=ImageDraw.Draw(im)
+    rng=random.Random(501)
+    # Perspective ice arena, illuminated crowd and rink markings.
+    d.rectangle((0,0,W,110),fill=(9,27,49))
+    for row in range(4):
+        for j in range(90):
+            x=7+j*15+row%2*7
+            y=111+row*22
+            shade=28+(j*17+row*11)%85
+            d.ellipse((x,y,x+4,y+4),fill=(shade,shade+13,shade+36))
+    d.polygon([(24,205),(1256,205),(1190,620),(90,620)],fill=(183,214,226))
+    d.line((38,210,1243,210),fill=(250,251,252),width=8)
+    d.line((90,619,1190,619),fill=(244,248,250),width=8)
+    for xx in (330,905):
+        d.line((xx,213,xx+((xx-640)*0.09),618),fill=(168,65,76),width=6)
+    d.line((640,211,640,620),fill=(69,128,182),width=6)
+    d.ellipse((551,335,730,498),outline=(83,145,191),width=5)
+    # Nets are clearly illustrative, with a live-replay camera perspective.
+    for gx in (70,1100):
+        d.rounded_rectangle((gx,345,gx+95,455),12,outline=(194,44,57),width=7)
+        for k in range(1,5):
+            d.line((gx+k*18,351,gx+k*18,451),fill=(120,155,173),width=2)
+    # Continuous puck pursuit, with opposing clubs skaters in motion.
+    puck_x=210+int((t*122)%820)
+    puck_y=386+int(58*math.sin(t*1.6))
+    d.line((puck_x-72,puck_y-22,puck_x-8,puck_y),fill=(107,156,172),width=3)
+    d.ellipse((puck_x-9,puck_y-5,puck_x+9,puck_y+5),fill=(13,16,22))
+    def skater(x,y,shirt,accent,heading):
+        bob=int(3*math.sin(t*5+x/57))
+        y+=bob
+        d.ellipse((x-24,y+20,x+24,y+32),fill=(103,142,156))
+        d.line((x-10,y+7,x-18,y+31),fill=(21,32,47),width=7)
+        d.line((x+10,y+7,x+19,y+29),fill=(21,32,47),width=7)
+        d.ellipse((x-27,y-21,x+27,y+19),fill=shirt,outline=accent,width=4)
+        d.ellipse((x-14,y-47,x+14,y-19),fill=(38,43,58),outline=(232,236,241),width=3)
+        d.line((x+heading*14,y-3,x+heading*51,y+23),fill=(37,42,53),width=6)
+        d.line((x+heading*51,y+23,x+heading*76,y+24),fill=(31,34,39),width=4)
+    for i in range(3):
+        xx=180+i*180+int(42*math.sin(t*1.7+i))
+        yy=310+i*69+int(24*math.cos(t*1.8+i))
+        skater(xx,yy,(169,35,53),(238,223,226),1)
+    for i in range(3):
+        xx=1030-i*178-int(47*math.sin(t*1.5+i*1.3))
+        yy=304+i*75+int(20*math.sin(t*1.6+i))
+        skater(xx,yy,(233,238,245),(68,102,141),-1)
+    # Camera panning ribbons and quick light sweeps.
+    sweep=int((t*185)%W)
+    d.polygon([(sweep-150,203),(sweep-126,203),(sweep+210,618),(sweep+185,618)],
+              fill=(215,231,240))
+    d.rectangle((0,0,W,85),fill=(8,17,34))
+    d.rectangle((0,0,W,9),fill=RED)
+    txt(d,(31,23),"CHL TOP PERFORMANCES",30,WHITE,620)
+    txt(d,(1048,28),"RECAP REEL",18,GOLD,200)
+    # Leaderboard panel is an editorial ranking of real box-score totals,
+    # explicitly not a claim that the animation depicts those plays.
+    rounded(d,(35,491,870,593),16,(5,19,39),outline=(62,129,162))
+    txt(d,(52,501),card.get("title","CAPITALS RECAP"),38,WHITE,770)
+    txt(d,(53,554),card.get("detail","VERIFIED MATCH RESULT"),20,GOLD,770)
+    d.rectangle((0,631,W,720),fill=(6,16,34))
+    d.rectangle((0,631,W,644),fill=RED)
+    txt(d,(28,659),f"{game['away']} {game['a']}    —    {game['h']} {game['home']}",31,WHITE,575)
+    txt(d,(618,663),"AI-ILLUSTRATED HOCKEY ACTION • NOT ACTUAL GAME FOOTAGE",
+        15,(175,211,230),650)
+    # Two commentators remain visible as stylized mini portrait windows.
+    rounded(d,(914,464,1252,624),12,(7,22,42),outline=(68,127,162))
+    person(d,1004,596,female=False,active=(frame_index//27)%2==0)
+    person(d,1164,596,female=analyst_female,active=(frame_index//27)%2==1)
+    # Restore panels above the projected portrait desk so they stay unclipped.
+    d.rectangle((908,607,1258,627),fill=(8,21,40))
+    txt(d,(937,610),"PLAY-BY-PLAY   |   ANALYST",15,GOLD,304)
+    return im
+
+def verified_reel(game,box):
+    panels=cards(game,box)
+    # Keep a compact editorial sequence; no fabricated Top 10 "plays".
+    return panels[:10]
+
+def generate_action_loop(root,game,box,female_analyst):
+    reel=verified_reel(game,box)
+    folder=root/"frames"
+    folder.mkdir()
+    fps=12
+    total_frames=max(72,len(reel)*12)
+    for i in range(total_frames):
+        # Each confirmed performance receives a short rotating visual panel,
+        # while synthetic hockey movement continues underneath.
+        card=reel[min(len(reel)-1,int(i/12))]
+        im=action_frame(game,card,i,total_frames,female_analyst)
+        im.resize((960,540),Image.Resampling.BILINEAR).save(folder/f"f{i:04d}.jpg",quality=73)
+    output=root/"illustrated-hockey.mp4"
+    cmd=["ffmpeg","-nostdin","-hide_banner","-loglevel","error","-y",
+         "-framerate",str(fps),"-i",str(folder/"f%04d.jpg"),
+         "-c:v","libx264","-preset","ultrafast","-crf","31",
+         "-pix_fmt","yuv420p","-movflags","+faststart",str(output)]
+    completed=subprocess.run(cmd,capture_output=True,text=True,timeout=95)
+    if completed.returncode:raise RuntimeError(completed.stderr[-1200:])
+    return output
+
 async def render(game,box,audio,female_analyst=False):
     if not audio:return None
     def work():
-        with tempfile.TemporaryDirectory(prefix="chl-studio-") as td:
+        with tempfile.TemporaryDirectory(prefix="chl-reel-") as td:
             root=Path(td)
-            images=scenes(game,box,female_analyst=female_analyst)
-            for i,img in enumerate(images):img.save(root/f"{i}.png")
             voice=root/"voice.mp3";voice.write_bytes(audio)
+            video=generate_action_loop(root,game,box,female_analyst)
             duration=seconds(voice)
-            n=len(images)
-            hold=max(4,math.ceil((duration+0.7)/n))
-            args=[];filters=[]
-            for i in range(n):
-                args+=["-loop","1","-framerate","16","-t",str(hold),"-i",str(root/f"{i}.png")]
-                z="min(zoom+0.00025,1.07)"
-                x="iw/2-(iw/zoom/2)"
-                y="ih/2-(ih/zoom/2)"
-                filters.append(f"[{i}:v]scale=1440:810,zoompan=z='{z}':x='{x}':y='{y}':d=1:s=960x540:fps=16,trim=duration={hold},setpts=PTS-STARTPTS,fade=t=in:st=0:d=0.18,fade=t=out:st={hold-0.22}:d=0.22,format=yuv420p[v{i}]")
-            filters.append("".join(f"[v{i}]" for i in range(n))+f"concat=n={n}:v=1:a=0[outv]")
-            filters.append(f"aevalsrc='0.005*sin(2*PI*55*t)+0.003*sin(2*PI*82*t)':s=44100:d={duration+1}[bed]")
-            filters.append(f"[{n}:a]aresample=44100,volume=1.0[voice]")
-            filters.append("[voice][bed]amix=inputs=2:duration=first:normalize=0,alimiter=limit=0.95[outa]")
-            cmd=["ffmpeg","-hide_banner","-nostdin","-loglevel","error","-y"]+args+[
-                "-i",str(voice),"-filter_complex",";".join(filters),
-                "-map","[outv]","-map","[outa]","-c:v","libx264",
-                "-preset","ultrafast","-crf","31","-c:a","aac","-b:a","112k",
-                "-movflags","+faststart","-shortest",str(root/"recap.mp4")]
-            result=subprocess.run(cmd,capture_output=True,text=True,timeout=170)
-            if result.returncode:raise RuntimeError(result.stderr[-1500:])
-            data=(root/"recap.mp4").read_bytes()
+            out=root/"recap.mp4"
+            # Loop the original synthetic action, while placing existing
+            # separately synthesized two-host commentary above it.
+            cmd=["ffmpeg","-nostdin","-hide_banner","-loglevel","error","-y",
+                 "-stream_loop","-1","-i",str(video),"-i",str(voice),
+                 "-filter_complex",
+                 f"aevalsrc='0.003*sin(2*PI*55*t)+0.002*sin(2*PI*82*t)':s=44100:d={duration+0.2}[bed];"
+                 "[1:a]aresample=44100[voice];"
+                 "[voice][bed]amix=inputs=2:duration=first:normalize=0,alimiter=limit=0.95[a]",
+                 "-map","0:v","-map","[a]","-t",str(duration),
+                 "-c:v","libx264","-preset","ultrafast","-crf","31",
+                 "-r","12","-c:a","aac","-b:a","112k",
+                 "-pix_fmt","yuv420p","-movflags","+faststart","-shortest",str(out)]
+            result=subprocess.run(cmd,capture_output=True,text=True,timeout=100)
+            if result.returncode:raise RuntimeError(result.stderr[-1300:])
+            data=out.read_bytes()
             return data if 50_000<len(data)<19_000_000 else None
-    try:return await asyncio.wait_for(asyncio.to_thread(work),timeout=180)
+    try:return await asyncio.wait_for(asyncio.to_thread(work),timeout=195)
     except Exception as exc:
         import logging
-        logging.getLogger("chl.studio").warning("Studio MP4 render failed: %s",exc)
+        logging.getLogger("chl.reel").warning("Illustrated recap MP4 failed: %s",exc)
         return None
