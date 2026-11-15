@@ -229,9 +229,39 @@ def action_frame(game,card,frame_index,total_frames,analyst_female=False):
     return im
 
 def verified_reel(game,box):
-    panels=cards(game,box)
-    # Keep a compact editorial sequence; no fabricated Top 10 "plays".
-    return panels[:10]
+    """Editorial countdown based solely on matched player box-score totals."""
+    panel=cards(game,box)[0]
+    players=[]
+    for p in (box or {}).get("players",[]):
+        name=p.get("name")
+        stats=p.get("stats",{})
+        if not name or p.get("team") not in (game["away"],game["home"]):continue
+        def value(k):
+            try:return max(0,float(stats.get(k,0)))
+            except (TypeError,ValueError):return 0
+        if p.get("pos")=="G":
+            if "SV" not in stats:continue
+            performance=value("SV")*0.25+value("SV%")*3
+            descriptor=str(stats["SV"])+" SAVES"
+        else:
+            if "P" not in stats:continue
+            performance=value("G")*3+value("A")*2+value("SH")*0.2
+            descriptor=(str(stats.get("G","0"))+" GOALS  ·  "+
+                        str(stats.get("A","0"))+" ASSISTS  ·  "+
+                        str(stats.get("P","0"))+" POINTS")
+        players.append((performance,p,descriptor))
+    players.sort(key=lambda x:(x[0],x[1]["name"]),reverse=True)
+    selected=players[:10]
+    reel=[panel]
+    for position,(score,p,descriptor) in reversed(list(enumerate(selected,start=1))):
+        reel.append({"header":"EDITORIAL TOP PERFORMANCES • NOT ACTUAL GAME CLIPS",
+                     "title":f"#{position}  "+p["name"][:27],
+                     "detail":p["team"]+"  |  "+descriptor})
+    if len(reel)==1:
+        reel.append({"header":"CAPITALS GAME SUMMARY",
+                     "title":"VERIFIED FINAL SCORE ONLY",
+                     "detail":"Individual box score not confirmed"})
+    return reel
 
 def generate_action_loop(root,game,box,female_analyst):
     reel=verified_reel(game,box)
