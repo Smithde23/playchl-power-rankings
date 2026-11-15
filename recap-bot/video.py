@@ -1,7 +1,7 @@
 """Create an original, cinematic, scoreboard-led narrated MP4.
 No gameplay footage and no fake player/event photos are used.
 """
-import asyncio,io,os,subprocess,tempfile
+import asyncio,io,os,subprocess,tempfile,math,json
 from pathlib import Path
 from PIL import Image,ImageDraw,ImageFont
 BLUE="#05121f";NAVY="#0b2337";GOLD="#e9be69";WHITE="#f1f7ff"
@@ -46,10 +46,12 @@ async def render(g,box,audio):
             for i,img in enumerate(images):
                 img.save(root/f"{i:02d}.png")
             (root/"voice.mp3").write_bytes(audio)
-            # Image sequence: each scene holds 5 seconds, narration length can extend final frame
+            probe=subprocess.run(["ffprobe","-v","error","-show_entries","format=duration","-of","json",str(root/"voice.mp3")],capture_output=True,text=True,check=True,timeout=10)
+            seconds=float(json.loads(probe.stdout)["format"]["duration"])
+            hold=max(5,math.ceil((seconds+2)/len(images)))
             playlist=[]
             for i in range(len(images)):
-                playlist+=["file '"+str(root/f"{i:02d}.png")+"'", "duration 5"]
+                playlist+=["file '"+str(root/f"{i:02d}.png")+"'", "duration "+str(hold)]
             playlist+=["file '"+str(root/f"{len(images)-1:02d}.png")+"'"]
             (root/"slides.txt").write_text("\n".join(playlist)+"\n")
             outfile=root/"recap.mp4"
