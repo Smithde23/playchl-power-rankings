@@ -164,32 +164,55 @@ def cinematic(g,box,base):
             "\n\n*The recap describes verified totals, not an invented scoring timeline or play-by-play.*")
 
 def voice_story(g,box):
+    """An original postgame narrative. Every named performance comes from one matched boxscore."""
     if g["status"]=="Forfeit":return script(g)
-    cap_win=(g["away"]=="WSH" and g["a"]>g["h"]) or (g["home"]=="WSH" and g["h"]>g["a"])
-    opponent=TEAMS[g["home"] if g["away"]=="WSH" else g["away"]]
+    rival=g["home"] if g["away"]=="WSH" else g["away"]
+    opponent=TEAMS[rival]
     capscore=g["a"] if g["away"]=="WSH" else g["h"]
     oppscore=g["h"] if g["away"]=="WSH" else g["a"]
-    v=("The Capitals walk away with the victory." if cap_win else "The Capitals come up short on the scoreboard.")
-    opening=("Lights on. The CHL spotlight turns to Washington. The Capitals meet "+opponent+
-             ". And at the final horn, the score says Washington "+str(capscore)+", "+opponent+" "+str(oppscore)+". "+v)
-    if not box:return opening+" That's the verified final result. We'll have more when the full box score is available."
-    speech=[opening]
-    for team in ("WSH",g["home"] if g["away"]=="WSH" else g["away"]):
-        chosen=noteworthy(box,team)
-        for p in chosen[:2]:
-            s=p["stats"]
-            if s.get("P") and s["P"]!="0":
-                speech.append(p["name"]+" finished with "+s["P"]+" points, on "+s.get("G","0")+" goals and "+s.get("A","0")+" assists.")
-            elif s.get("SV"):
-                speech.append(p["name"]+" recorded "+s["SV"]+" saves.")
-    if box.get("match"):
-        m=box["match"]
-        shots=m.get("Shots")
-        if shots and len(shots)==2:
-            speech.append("The official team comparison lists "+str(shots[0])+" shots on one side, and "+str(shots[1])+" on the other.")
-    speech.append(("The victory belongs to Washington." if cap_win else "The final score favors "+opponent+".")
-                   +" These are the numbers, the names, and the stakes we can confirm. "
-                   "The next game brings a new chapter. This one belongs in the Capitals record books.")
+    won=capscore>oppscore
+    margin=abs(capscore-oppscore)
+    if won:
+        opening=(f"Under the lights of the Continental Hockey League, Washington makes a statement. "
+                 f"The Capitals take down {opponent}, {capscore} to {oppscore}.")
+    else:
+        opening=(f"Some nights leave a mark. In a high-stakes Continental Hockey League matchup, "
+                 f"Washington falls to {opponent}, {capscore} to {oppscore}.")
+    tone=("One goal made the difference on the final scoreboard. "
+          if margin==1 else f"The final score shows a margin of {margin} goals. ")
+    if not box:
+        return (opening+" "+tone+"The scoreboard is confirmed, but player performances have not been "
+                "verified for this match. The Capitals' next chapter is still unwritten.")
+    caps=noteworthy(box,"WSH")
+    rivals=noteworthy(box,rival)
+    speech=[opening,tone]
+    def describe(p):
+        name=p["name"];s=p["stats"]
+        if p.get("pos")=="G" and "SV" in s:
+            return f"{name} is credited with {s['SV']} saves for this game."
+        gval=s.get("G");aval=s.get("A");points=s.get("P")
+        if not points:return None
+        if gval and aval:
+            return f"{name} delivers {points} points: {gval} goals and {aval} assists."
+        return f"{name} records {points} points."
+    for i,p in enumerate(caps[:3]):
+        line=describe(p)
+        if line:
+            if i==0:speech.append("For Washington, one name rises off the score sheet.")
+            speech.append(line)
+    for i,p in enumerate(rivals[:2]):
+        line=describe(p)
+        if line:
+            if i==0:speech.append("Across the ice, "+opponent+" has a story of its own.")
+            speech.append(line)
+    stats=box.get("match",{})
+    if "Shots" in stats and len(stats["Shots"])==2:
+        speech.append("The verified team comparison lists "+str(stats["Shots"][0])+
+                      " shots for one club and "+str(stats["Shots"][1])+" for the other.")
+    if won:
+        speech.append("When the score is settled, the Capitals own the result. The numbers stay on the record. The season moves forward.")
+    else:
+        speech.append("For Washington, the defeat is part of the record, but not the end of the story. The next game waits. And so does the response.")
     return " ".join(speech)
 
 def script(g,box=None):
