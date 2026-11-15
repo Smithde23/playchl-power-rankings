@@ -36,7 +36,7 @@ class FallbackTests(unittest.TestCase):
         self.assertEqual(mapped["Buckley0306"]["stats"]["G"],"2")
         self.assertEqual(mapped["Buckley0306"]["stats"]["A"],"3")
         self.assertEqual(mapped["Charlielucia13"]["stats"]["SV"],"13")
-        self.assertEqual(mapped["OffsKripT"]["team"],"UTAH")
+        self.assertEqual(mapped["OffsKripT I72I"]["team"],"UTAH")
 
     def test_wrong_score_rejected(self):
         wrong=dict(GAME,a=5)
