@@ -192,22 +192,28 @@ async def fetch_fallback(game):
             candidate=matched[0]
             target=page.locator('[data-chl-matchcard="'+candidate["id"]+'"]')
             await target.click(timeout=8000)
-            try:
-                await page.locator('ion-segment-button[value="summary"]').first.wait_for(timeout=3500)
-            except Exception:
-                # Ionic match cards sometimes place their click handler on ion-card,
-                # rather than on the descendant containing the match text.
-                await target.evaluate("""el => {
-                    const card=el.closest('ion-card')||el.closest('[role="button"]');
-                    if(card)card.click();
-                }""")
-                try:
-                    await page.locator('ion-segment-button[value="summary"]').first.wait_for(timeout=4500)
-                except Exception:
-                    snapshot=clean(await page.locator("body").inner_text(timeout=10000))
-                    log.warning("CHELHEAD match modal not opened; last content: %r",snapshot[-1250:])
-                    return None
-            await page.locator('ion-segment-button[value="players"]').last.click(timeout=8000)
+            # CHEL HEAD's report is a custom Ionic popup, not an ion-segment
+            # with a summary value. Verify the report by its heading text.
+            await page.wait_for_timeout(650)
+            snapshot=clean(await page.locator("body").inner_text(timeout=12000))
+            if not ("DESERVE TO WIN" in snapshot.upper() and "SUMMARY" in snapshot.upper()):
+                log.warning("CHELHEAD report did not open for %s",game["id"])
+                return None
+            pressed=await page.evaluate("""() => {
+              const els=[...document.querySelectorAll('ion-segment-button, ion-tab-button, ion-button, button, [role=tab], [role=button], div, span')];
+              const labels=els.filter(el=>el.children.length<=2 && (el.innerText||'').trim().toUpperCase()==='PLAYERS')
+                  .filter(el=>el.getBoundingClientRect().width>0 && el.getBoundingClientRect().height>0);
+              for(const el of labels.reverse()){
+                const clickable=el.closest('ion-segment-button,ion-tab-button,ion-button,button,[role=tab],[role=button]')||el;
+                clickable.click();
+                return clickable.outerHTML.slice(0,300);
+              }
+              return '';
+            }""")
+            if not pressed:
+                log.warning("CHELHEAD report opened, but Players tab was not found")
+                return None
+            log.info("CHELHEAD clicked Players tab via %s",pressed[:180])
             await page.wait_for_timeout(600)
             # Popup text extracted in DOM reading order; not a navigation URL.
             modal=await page.evaluate("""() => {
