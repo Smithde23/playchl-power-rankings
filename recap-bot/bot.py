@@ -12,7 +12,7 @@ from stats import discover_schedule_links,fetch_box,noteworthy
 from video import render as render_video
 from chelhead import fetch_fallback
 from story import build_narration,select_style,select_voice
-from broadcast import make_dialogue,print_transcript,audio_text,synthesize_dialogue,PAIRS
+from broadcast import make_dialogue,print_transcript,audio_text,synthesize_dialogue,PAIRS,voice_pair
 load_dotenv();logging.basicConfig(level=logging.INFO);log=logging.getLogger("chl.recaps")
 TEAMS={"ANA":"Anaheim","BUF":"Buffalo","CGY":"Calgary","DET":"Detroit","MIN":"Minnesota","SEA":"Seattle","SJS":"San Jose","UTAH":"Utah","VGK":"Vegas","WSH":"Washington"}
 MON={m:i+1 for i,m in enumerate("Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split())}
@@ -304,9 +304,12 @@ async def post(gid,force=False):
         body=body[:4050]
         audio=None
         two_voice=False
+        selected_pair=random.randrange(len(PAIRS))
+        analyst_voice=voice_pair(selected_pair)[1]
+        female_analyst=analyst_voice in ("en-US-JennyNeural","en-US-AriaNeural","en-US-JaneNeural","en-US-SaraNeural","en-US-MichelleNeural")
         try:
             audio=await asyncio.wait_for(
-                synthesize_dialogue(dialogue,voice_index=random.randrange(len(PAIRS))),timeout=175)
+                synthesize_dialogue(dialogue,voice_index=selected_pair),timeout=175)
             two_voice=bool(audio)
         except Exception as exc:
             log.warning("Two-host TTS unavailable for %s: %s; trying single-narrator fallback",gid,exc)
@@ -324,7 +327,7 @@ async def post(gid,force=False):
             e.add_field(name="Verified player statistics",value="[View "+provider+" source]("+box["url"]+")",inline=False)
         e.set_footer(text="Verified PlayCHL / CHEL HEAD data • Original broadcast voices • No invented game events")
         attachments=[discord.File(io.BytesIO(graphic(g,box)),filename="recap.png")]
-        motion=await render_video(g,box,audio)
+        motion=await render_video(g,box,audio,female_analyst=female_analyst and two_voice)
         if motion:attachments.append(discord.File(io.BytesIO(motion),filename="capitals-cinematic-recap.mp4"))
         if audio and not motion:attachments.append(discord.File(io.BytesIO(audio),filename="recap-narration.mp3"))
         elif not audio and AUDIO:e.add_field(name="Audio",value="Narration service unavailable; the written recap is provided above.")
