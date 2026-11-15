@@ -16,10 +16,13 @@ from story import TEAMS, top_players, number
 
 log=logging.getLogger("chl.broadcast")
 PAIRS=(
+    ("en-US-GuyNeural","en-US-JennyNeural"),
+    ("en-US-RogerNeural","en-US-AriaNeural"),
+    ("en-US-ChristopherNeural","en-US-GuyNeural"),
     ("en-US-GuyNeural","en-US-ChristopherNeural"),
-    ("en-US-RogerNeural","en-US-GuyNeural"),
-    ("en-US-ChristopherNeural","en-US-RogerNeural"),
 )
+# Both female and male color analysts rotate, without mimicking any
+# real broadcaster. Override ANALYST_VOICE to use one consistently.
 # Allow an operator to set specific original TTS voices, not real broadcaster clones.
 def voice_pair(index=0):
     a=os.getenv("PLAY_BY_PLAY_VOICE","").strip()
@@ -99,9 +102,51 @@ def make_dialogue(game,box,style="score_first",rng=None):
     elif cgoalies and player is not cgoalies[0]:
         sections.append(("play","And between the pipes, what do the numbers show?"))
         sections.append(("analyst",_player(cgoalies[0],rng)))
+    # Additional data-driven chapters make each recap a genuine postgame
+    # discussion, not the same two player blurbs followed by a final score.
+    if len(leaders)>2:
+        p=leaders[2]
+        sections.append(("play",rng.choice((
+            "Let's go deeper into Washington's score sheet. Who else contributed?",
+            "We've covered the leaders. What about the supporting numbers?",
+            "Before we move on, there's another Capitals player worth recognizing.",
+        ))))
+        sections.append(("analyst",_player(p,rng)))
+    if cgoalies and (not player or player is not cgoalies[0]) and len(leaders)>1:
+        goalie=cgoalies[0]
+        sections.append(("play","And what do the verified goaltending numbers tell us?"))
+        sections.append(("analyst",_player(goalie,rng)))
     if rival_player:
         sections.append(("play",f"Fair enough. What about {rival_name}?"))
         sections.append(("analyst",_player(rival_player,rng)))
+    if len(rival_leaders)>1:
+        sections.append(("play",f"Any other {rival_name} names to note from this box score?"))
+        sections.append(("analyst",_player(rival_leaders[1],rng)))
+    # Team-level observations must come from an actual validated comparison.
+    match=(box or {}).get("match",{})
+    if match and isinstance(match,dict):
+        for metric in ("Shots","Hits","Takeaways"):
+            values=match.get(metric)
+            if not isinstance(values,(tuple,list)) or len(values)!=2:continue
+            try:
+                left,right=float(values[0]),float(values[1])
+            except (ValueError,TypeError):continue
+            if left<0 or right<0:continue
+            # Match source uses away/home order. Never assign a statistic to
+            # a particular club unless the source explicitly declares order.
+            sections.append(("play",f"Now let's compare the teams in {metric.lower()}."))
+            sections.append(("analyst",
+                f"The verified comparison lists {int(left) if left.is_integer() else left} "
+                f"and {int(right) if right.is_integer() else right} for {metric.lower()}, "
+                "respectively, in its displayed order."))
+            break
+    if len(caps)>=3 and any(number(p,"SH")>0 for p in caps):
+        shooter=max(caps,key=lambda p:number(p,"SH"))
+        attempts=number(shooter,"SH")
+        if attempts:
+            sections.append(("play","One more Washington detail from the individual numbers: the shooting totals."))
+            sections.append(("analyst",f"{shooter['name']} is credited with {attempts} shots. "
+                             "That gives us another measurable piece of the game, without guessing at a scoring sequence."))
     sections.append(("play",rng.choice((
         "Now, the final margin. Just one goal separates the teams." if close else f"The final margin is {abs(wsh-other)} goals.",
         "It's a one-goal final on the scoreboard." if close else f"A {abs(wsh-other)}-goal margin on the final scoreboard.",
@@ -123,6 +168,8 @@ def make_dialogue(game,box,style="score_first",rng=None):
             "The Capitals come up short in the final. The season continues.",
         ))))
         sections.append(("analyst","Exactly. You can't change the final. You can decide how you respond next game."))
+    # Return structured dialogue so TTS and posted transcript share the same
+    # verified statements. Preserve strict turn-taking.
     return [(role,text.strip()) for role,text in sections if text and text.strip()]
 
 def print_transcript(lines):
