@@ -193,7 +193,7 @@ async def fetch_fallback(game):
             target=page.locator('[data-chl-matchcard="'+candidate["id"]+'"]')
             await target.click(timeout=8000)
             try:
-                await page.get_by_text("SUMMARY",exact=True).first.wait_for(timeout=3500)
+                await page.locator('ion-segment-button[value="summary"]').first.wait_for(timeout=3500)
             except Exception:
                 # Ionic match cards sometimes place their click handler on ion-card,
                 # rather than on the descendant containing the match text.
@@ -202,7 +202,7 @@ async def fetch_fallback(game):
                     if(card)card.click();
                 }""")
                 try:
-                    await page.get_by_text("SUMMARY",exact=True).first.wait_for(timeout=4500)
+                    await page.locator('ion-segment-button[value="summary"]').first.wait_for(timeout=4500)
                 except Exception:
                     snapshot=clean(await page.locator("body").inner_text(timeout=10000))
                     log.warning("CHELHEAD match modal not opened; last content: %r",snapshot[-1250:])
