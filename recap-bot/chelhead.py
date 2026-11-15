@@ -226,7 +226,7 @@ async def fetch_fallback(game):
             }""")
             box=extract_box(modal,game)
             if box:log.info("CHELHEAD verified %d player entries for %s",len(box["players"]),game["id"])
-            else:log.info("CHELHEAD popup opened but boxscore validation failed: %s",game["id"])
+            else:log.warning("CHELHEAD player report parser failed for %s; popup excerpt=%r",game["id"],clean(modal)[:3200])
             return box
         except Exception as exc:
             log.warning("CHELHEAD fallback unavailable: %s",exc)
