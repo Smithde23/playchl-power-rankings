@@ -136,9 +136,9 @@ def cards(game,box):
     items.append({"header":"POSTGAME SIGN-OFF","title":"UNTIL NEXT GAME","detail":"Washington Capitals  ·  CHL 27"})
     return items
 
-def scenes(game,box):
+def scenes(game,box,female_analyst=False):
     spots=cards(game,box)
-    is_female=random.choice((False,True))
+    is_female=female_analyst
     return [studio_base(i,"play" if i%2==0 else "analyst",is_female,game,box,item)
             for i,item in enumerate(spots)]
 
@@ -147,12 +147,12 @@ def seconds(path):
                           "-of","json",str(path)],capture_output=True,text=True,check=True,timeout=10)
     return float(json.loads(result.stdout)["format"]["duration"])
 
-async def render(game,box,audio):
+async def render(game,box,audio,female_analyst=False):
     if not audio:return None
     def work():
         with tempfile.TemporaryDirectory(prefix="chl-studio-") as td:
             root=Path(td)
-            images=scenes(game,box)
+            images=scenes(game,box,female_analyst=female_analyst)
             for i,img in enumerate(images):img.save(root/f"{i}.png")
             voice=root/"voice.mp3";voice.write_bytes(audio)
             duration=seconds(voice)
