@@ -3,7 +3,7 @@ import asyncio
 import shutil
 import subprocess
 import unittest
-from video import render, scenes, cards
+from video import render, scenes, cards, verified_reel, action_frame
 
 class VideoTests(unittest.IsolatedAsyncioTestCase):
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),"ffmpeg required")
@@ -18,6 +18,22 @@ class VideoTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(movie,"Cinematic FFmpeg render returned None")
         self.assertGreater(len(movie),50_000)
         self.assertTrue(movie[4:8] in (b"ftyp",b"free",b"mdat"))
+
+    async def test_editorial_countdown_only_ranks_verified_players(self):
+        game={"away":"WSH","home":"UTAH","a":6,"h":7,"status":"Final"}
+        source={"players":[
+            {"name":"Buckley0306","team":"WSH","pos":"C","stats":{"G":"2","A":"3","P":"5","SH":"4"}},
+            {"name":"OffsKripT I72I","team":"UTAH","pos":"LW","stats":{"G":"4","A":"3","P":"7","SH":"7"}},
+            {"name":"Charlielucia13","team":"WSH","pos":"G","stats":{"SV":"13","SV%":"0.650"}}
+        ]}
+        reel=verified_reel(game,source)
+        self.assertEqual(len(reel),4)
+        self.assertIn("#3",reel[1]["title"])
+        self.assertIn("#1",reel[-1]["title"])
+        self.assertTrue(all("NOT ACTUAL GAME CLIPS" in x["header"] for x in reel[1:]))
+        shot_a=action_frame(game,reel[1],0,72,analyst_female=True)
+        shot_b=action_frame(game,reel[1],19,72,analyst_female=True)
+        self.assertNotEqual(shot_a.tobytes(),shot_b.tobytes())
 
     async def test_studio_scene_has_two_hosts_and_real_stat_cards(self):
         game={"away":"WSH","home":"UTAH","a":6,"h":7,"status":"Final"}
