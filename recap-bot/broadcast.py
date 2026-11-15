@@ -71,7 +71,7 @@ def make_dialogue(game,box,style="score_first",rng=None):
     if game.get("status")=="Forfeit":
         return [
             ("play",f"An official CHL result for Washington and {rival_name}: Capitals {wsh}, {rival_name} {other}."),
-            ("analyst","This was recorded as a forfeit, not an on-ice performance. Player highlights would be misleading here."),
+            ("analyst","This was recorded as a forfeit, an administrative result, not an on-ice performance. Player highlights would be misleading here."),
             ("play","That's the official result. We'll return with a full breakdown when the next played game is confirmed."),
         ]
     caps,cgoalies=top_players(box,"WSH")
@@ -112,15 +112,15 @@ def make_dialogue(game,box,style="score_first",rng=None):
         pts=number(p,"P");goals=number(p,"G");assists=number(p,"A")
         if pts<1:return None
         if goals and assists:
-            detail=f"{goals} goals, {assists} assists and {pts} total points"
-        elif goals:detail=f"{goals} goals and {pts} points"
-        else:detail=f"{assists} assists for {pts} total points"
+            detail=f"{goals} {'goal' if goals==1 else 'goals'}, {assists} {'assist' if assists==1 else 'assists'} and {pts} total points"
+        elif goals:detail=f"{goals} {'goal' if goals==1 else 'goals'} and {pts} {'point' if pts==1 else 'points'}"
+        else:detail=f"{assists} {'assist' if assists==1 else 'assists'} for {pts} total {'point' if pts==1 else 'points'}"
         shots=number(p,"SH")
-        extra=f" Sheer volume on the score sheet, with {shots} recorded shots." if shots>=5 else (f" Add {shots} shots to the line." if shots>0 else "")
+        extra=f" That's {shots} recorded shots as well." if shots>=5 else (f" Add {shots} shots to the line." if shots>0 else "")
         return rng.choice((
-            f"{p['name']} puts together an impressive {detail}.{extra}",
+            f"{p['name']} delivers {detail}.{extra}",
             f"Look at {p['name']}: {detail}.{extra}",
-            f"The verified box score credits {p['name']} with {detail}.{extra}",
+            f"The verified box score lists {p['name']} with {detail}.{extra}",
         )).strip()
 
     if lead or lead_opp:
@@ -158,10 +158,20 @@ def make_dialogue(game,box,style="score_first",rng=None):
         if more_other:
             lines.append(("play",f"And there's another {loser} name worth mentioning, too."))
             lines.append(("analyst",spotlight(more_other[0],other_team)))
+        # Complete the supporting cast: third confirmed Capitals contributor
+        # earns a mention when available, without inventing an official award.
+        if other_team=="WSH":
+            additional=[p for p in skaters["WSH"] if p is not secondary and number(p,"P")>0]
+        else:
+            additional=[p for p in skaters["WSH"] if p is not starring and p not in more and number(p,"P")>0]
+        if len(additional)>1:
+            p=additional[1]
+            lines.append(("play","One more Capitals contributor deserves a mention."))
+            lines.append(("analyst",spotlight(p,"WSH")))
     else:
         lines.extend([
             ("play","We have the final score. Do we also have verified individual performances?"),
-            ("analyst","Not for this game. The player report hasn't been confirmed, so we won't assign goals, assists, or highlights to anyone."),
+            ("analyst","Not for this game. The player report is not confirmed, so we won't assign goals, assists, or highlights to anyone."),
         ])
 
     # Additional verified numbers offer depth while avoiding imagined sequences.
@@ -169,7 +179,7 @@ def make_dialogue(game,box,style="score_first",rng=None):
     if best_shooter and number(best_shooter,"SH")>=4:
         lines.append(("play","Let's talk about Washington's shot production."))
         lines.append(("analyst",f"{best_shooter['name']} registered {number(best_shooter,'SH')} shots. "
-                        "That's one of the clearest individual volume numbers in the Capitals box score."))
+                        "That is a verified measure of the Capitals' shooting activity."))
 
     # Discuss confirmed goaltending on both sides, especially the winning side,
     # without describing the timing or importance of individual saves.
@@ -187,6 +197,9 @@ def make_dialogue(game,box,style="score_first",rng=None):
             lines.append(("play",f"Before we wrap up, what was the goaltending number for {loser}?"))
             lines.append(("analyst",f"{g['name']} finished with {s['SV']} recorded saves."))
 
+    if not box:
+        lines.append(("play","So the score is final, but we won't fill the gaps with an imaginary game story."))
+        lines.append(("analyst","Exactly. No player performance is verified here, and that distinction matters."))
     lines.append(("play",rng.choice((
         "Put it all together: the score, the standout scorers, and those confirmed goaltending numbers.",
         "The individual stats add real color to that final result.",
@@ -202,7 +215,7 @@ def make_dialogue(game,box,style="score_first",rng=None):
         lines.append(("analyst",f"The verified Three Stars: first, {names[0]}; second, {names[1]}; and third, {names[2]}."))
     else:
         lines.append(("analyst",rng.choice((
-            "Those are the confirmed performances we'll remember from this matchup.",
+            "Those are the confirmed performances we'll remember from this matchup." if box else "We have the verified score; the remaining individual details aren't confirmed.",
             "And that gives you the story of the recorded numbers without guessing about unreported shifts or scoring order.",
             "There is plenty to talk about in those player totals, even without a verified play-by-play timeline.",
         ))))
