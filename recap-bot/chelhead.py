@@ -190,8 +190,23 @@ async def fetch_fallback(game):
                          game["id"],len(cards),len(matched),game["away"],game["a"],game["h"],game["home"])
                 return None
             candidate=matched[0]
-            await page.locator('[data-chl-matchcard="'+candidate["id"]+'"]').click(timeout=8000)
-            await page.get_by_text("SUMMARY",exact=True).first.wait_for(timeout=8000)
+            target=page.locator('[data-chl-matchcard="'+candidate["id"]+'"]')
+            await target.click(timeout=8000)
+            try:
+                await page.get_by_text("SUMMARY",exact=True).first.wait_for(timeout=3500)
+            except Exception:
+                # Ionic match cards sometimes place their click handler on ion-card,
+                # rather than on the descendant containing the match text.
+                await target.evaluate("""el => {
+                    const card=el.closest('ion-card')||el.closest('[role="button"]');
+                    if(card)card.click();
+                }""")
+                try:
+                    await page.get_by_text("SUMMARY",exact=True).first.wait_for(timeout=4500)
+                except Exception:
+                    snapshot=clean(await page.locator("body").inner_text(timeout=10000))
+                    log.warning("CHELHEAD match modal not opened; last content: %r",snapshot[-1250:])
+                    return None
             await page.locator('ion-segment-button[value="players"]').last.click(timeout=8000)
             await page.wait_for_timeout(600)
             # Popup text extracted in DOM reading order; not a navigation URL.
