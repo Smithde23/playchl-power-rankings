@@ -37,8 +37,14 @@ class FallbackTests(unittest.TestCase):
         wrong=dict(GAME,home="DET")
         self.assertIsNone(extract_box(POPUP,wrong))
 
+    def test_reverse_fixture_not_matched(self):
+        opposite={"id":"opposite","text":"6v6 lobby. CHL27 UTAH MAMMOTH 6 at CHL27 WASHINGTON CAPITALS 7. 1 days ago"}
+        correct={"id":"correct","text":"6v6 lobby. CHL27 WASHINGTON CAPITALS 6 at CHL27 UTAH MAMMOTH 7. 1 days ago"}
+        matches=card_candidates([opposite,correct],GAME)
+        self.assertEqual([x["id"] for x in matches],["correct"])
+
     def test_ambiguous_cards_rejected_by_resolver(self):
-        card={"id":"1","text":"CHL27 WASHINGTON CAPITALS 6 CHL27 UTAH MAMMOTH 7 0 hours ago"}
+        card={"id":"1","text":"6v6 lobby. CHL27 WASHINGTON CAPITALS 6 at CHL27 UTAH MAMMOTH 7. 0 hours ago"}
         self.assertEqual(len(card_candidates([card,dict(card,id="2")],GAME)),2)
 
 if __name__=="__main__":unittest.main()
