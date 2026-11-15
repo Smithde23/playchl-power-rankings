@@ -48,129 +48,178 @@ def _player(p,rng):
     return f"{name} contributes {assists} assists and {pts} points."
 
 def make_dialogue(game,box,style="score_first",rng=None):
-    """Alternating tuples (role, line), where role is 'play' or 'analyst'."""
+    """Fast-paced two-host story with grounded standouts, opposition and closing.
+
+    This is an editorial recap of verified aggregates, never claimed play-by-play.
+    No official Three Stars, scoring order, standings movement or comeback is
+    invented. Two alternating roles remain compatible with the audio mixer.
+    """
     rng=rng or random.SystemRandom()
-    away=game["away"];home=game["home"]
+    away,home=game["away"],game["home"]
     if "WSH" not in (away,home):raise ValueError("Capitals games only")
     rival=home if away=="WSH" else away
     rival_name=TEAMS[rival]
     wsh=int(game["a"] if away=="WSH" else game["h"])
     other=int(game["h"] if away=="WSH" else game["a"])
     won=wsh>other
-    close=abs(wsh-other)==1
-    result=f"Washington {wsh}, {rival_name} {other}."
+    diff=abs(wsh-other)
+    winner="Washington" if won else rival_name
+    loser=rival_name if won else "Washington"
+    winner_score=max(wsh,other)
+    loser_score=min(wsh,other)
+    location="at home" if (home=="WSH" and won) or (home==rival and not won) else "on the road"
     if game.get("status")=="Forfeit":
         return [
-            ("play",f"An official CHL result for Washington against {rival_name}. The recorded score is {result}"),
-            ("analyst","This is a forfeit, an administrative result. We are not describing this as a played hockey game."),
-            ("play","That's the official report. We'll return with confirmed results from the next game."),
+            ("play",f"An official CHL result for Washington and {rival_name}: Capitals {wsh}, {rival_name} {other}."),
+            ("analyst","This was recorded as a forfeit, not an on-ice performance. Player highlights would be misleading here."),
+            ("play","That's the official result. We'll return with a full breakdown when the next played game is confirmed."),
         ]
     caps,cgoalies=top_players(box,"WSH")
-    opponents,ogoalies=top_players(box,rival)
-    leaders=[p for p in caps if number(p,"P")>0]
-    rival_leaders=[p for p in opponents if number(p,"P")>0]
-    player=leaders[0] if leaders else (cgoalies[0] if cgoalies else None)
-    rival_player=rival_leaders[0] if rival_leaders else (ogoalies[0] if ogoalies else None)
-    intros={
-        "score_first":(f"Washington and {rival_name}. The final is in. {result}",
-                       "That score catches your eye. Now let's look at the players who put up the numbers."),
-        "player_first":(f"Welcome to the Capitals postgame desk. The score is final: {result}",
-                        "Absolutely. There's a player performance worth talking about here."),
-        "matchup":(f"Two clubs, one CHL matchup. The Capitals face {rival_name}, and the result is {result}",
-                   "Exactly. Let's get into the numbers behind that result."),
-        "scoreboard":(f"The final horn is in the books. Washington against {rival_name}: {result}",
-                      "Right. And I want to look at what the box score says about both clubs."),
-        "spotlight":(f"Tonight's Capitals spotlight begins with the game result. {result}",
-                     "I'm glad you brought that up. One Capitals name jumps right off the stat sheet."),
-        "season":(f"One more chapter in the Capitals' CHL season. The official final: {result}",
-                  "And those player numbers are where this one gets interesting."),
+    opposition,ogoalies=top_players(box,rival)
+    skaters={"WSH":caps,rival:opposition}
+    goalies={"WSH":cgoalies,rival:ogoalies}
+    leaders=skaters["WSH"]
+    rivals=skaters[rival]
+    lead=leaders[0] if leaders and number(leaders[0],"P") else None
+    lead_opp=rivals[0] if rivals and number(rivals[0],"P") else None
+
+    openings={
+        "score_first":("What a night on the CHL schedule!",
+                       "Let's open up that score sheet, because there's more to this one than the final."),
+        "player_first":("The numbers are in, and the names behind them are worth talking about!",
+                        "Absolutely. This recap has some serious player production to dig into."),
+        "matchup":(f"Washington against {rival_name}. Another CHL matchup, another final!",
+                   "And the matchup tells an interesting story when you look at the verified player totals."),
+        "scoreboard":("The final horn has sounded, and here's your Capitals postgame report!",
+                      "The scoreboard gives us the result; the player stats help fill out the picture."),
+        "spotlight":("It's time to put the spotlight on the names who filled the box score!",
+                     "I've got the numbers, and there are some performances worth highlighting."),
+        "season":("Another chapter in the Capitals' CHL campaign is in the books!",
+                   "Every final adds to the picture. Let's see what this result actually tells us."),
     }
-    intro,bridge=intros.get(style,intros["score_first"])
-    sections=[("play",intro),("analyst",bridge)]
-    if player:
-        sections.append(("play",rng.choice(("Who jumps out for Washington?",
-                                            "Give me the Capitals standout.",
-                                            "Okay, who made the biggest mark in Washington's box score?"))))
-        sections.append(("analyst",_player(player,rng)))
+    opening,reply=openings.get(style,openings["score_first"])
+    result=f"{winner} takes a {winner_score} to {loser_score} decision over {loser}, {location}."
+    margin=(rng.choice(("A single goal separates these two sides!",
+                         "Just one goal between them at the finish!",
+                         "A one-goal result on the board!"))
+            if diff==1 else f"That's a {diff}-goal difference on the final scoreboard.")
+    lines=[
+        ("play",f"{opening} {result} {margin}"),
+        ("analyst",reply),
+    ]
+
+    def spotlight(p,team):
+        pts=number(p,"P");goals=number(p,"G");assists=number(p,"A")
+        if pts<1:return None
+        if goals and assists:
+            detail=f"{goals} goals, {assists} assists and {pts} total points"
+        elif goals:detail=f"{goals} goals and {pts} points"
+        else:detail=f"{assists} assists for {pts} total points"
+        shots=number(p,"SH")
+        extra=f" Sheer volume on the score sheet, with {shots} recorded shots." if shots>=5 else (f" Add {shots} shots to the line." if shots>0 else "")
+        return rng.choice((
+            f"{p['name']} puts together an impressive {detail}.{extra}",
+            f"Look at {p['name']}: {detail}.{extra}",
+            f"The verified box score credits {p['name']} with {detail}.{extra}",
+        )).strip()
+
+    if lead or lead_opp:
+        # The winning side can lead the player story, rather than always
+        # beginning with Washington regardless of the game result.
+        starring_team="WSH" if won else rival
+        starring=lead if won else lead_opp
+        other_team=rival if won else "WSH"
+        secondary=lead_opp if won else lead
+        if starring:
+            lines.append(("play",rng.choice((
+                f"And the {winner} attack has a player to headline this one!",
+                f"Let's start with the name at the top of {winner}'s scoring totals!",
+                f"What a statistical performance from the {winner} side!",
+            ))))
+            lines.append(("analyst",spotlight(starring,starring_team)))
+        else:
+            lines.append(("play",f"Let's look at the individual numbers for {winner}."))
+            lines.append(("analyst","The team result is verified, but a leading scorer wasn't confirmed in the available player report."))
+        # Use a second scorer from the winning side when confirmed.
+        winner_skaters=skaters[starring_team]
+        more=[p for p in winner_skaters if p is not starring and number(p,"P")>0]
+        if more:
+            p=more[0]
+            lines.append(("play",rng.choice((
+                "And it wasn't a one-player score sheet. Who else delivered?",
+                "The leading scorer had company. What about the other contributors?",
+            ))))
+            lines.append(("analyst",spotlight(p,starring_team)))
+        # Losing team gets recognition without claiming specific game sequences.
+        if secondary:
+            lines.append(("play",f"Now, {loser} didn't leave the score sheet empty. Who stands out there?"))
+            lines.append(("analyst",spotlight(secondary,other_team)))
+        more_other=[p for p in skaters[other_team] if p is not secondary and number(p,"P")>0]
+        if more_other:
+            lines.append(("play",f"And there's another {loser} name worth mentioning, too."))
+            lines.append(("analyst",spotlight(more_other[0],other_team)))
     else:
-        sections.append(("play","The verified final is available, but this game's full player report is not confirmed."))
-        sections.append(("analyst","So we won't guess at goalscorers, game-changing plays, or individual performances."))
-    if len(leaders)>1:
-        sections.append(("play",rng.choice(("And they weren't the only Capitals player putting up numbers, right?",
-                                            "What about the other Washington contributors?"))))
-        sections.append(("analyst",_player(leaders[1],rng)))
-    elif cgoalies and player is not cgoalies[0]:
-        sections.append(("play","And between the pipes, what do the numbers show?"))
-        sections.append(("analyst",_player(cgoalies[0],rng)))
-    # Additional data-driven chapters make each recap a genuine postgame
-    # discussion, not the same two player blurbs followed by a final score.
-    if len(leaders)>2:
-        p=leaders[2]
-        sections.append(("play",rng.choice((
-            "Let's go deeper into Washington's score sheet. Who else contributed?",
-            "We've covered the leaders. What about the supporting numbers?",
-            "Before we move on, there's another Capitals player worth recognizing.",
+        lines.extend([
+            ("play","We have the final score. Do we also have verified individual performances?"),
+            ("analyst","Not for this game. The player report hasn't been confirmed, so we won't assign goals, assists, or highlights to anyone."),
+        ])
+
+    # Additional verified numbers offer depth while avoiding imagined sequences.
+    best_shooter=max(caps,key=lambda p:number(p,"SH")) if caps else None
+    if best_shooter and number(best_shooter,"SH")>=4:
+        lines.append(("play","Let's talk about Washington's shot production."))
+        lines.append(("analyst",f"{best_shooter['name']} registered {number(best_shooter,'SH')} shots. "
+                        "That's one of the clearest individual volume numbers in the Capitals box score."))
+
+    # Discuss confirmed goaltending on both sides, especially the winning side,
+    # without describing the timing or importance of individual saves.
+    winning_goalies=goalies["WSH" if won else rival]
+    losing_goalies=goalies[rival if won else "WSH"]
+    if winning_goalies:
+        g=winning_goalies[0];s=g.get("stats",{})
+        if "SV" in s:
+            lines.append(("play",f"And don't overlook the goaltending in that {winner} win."))
+            lines.append(("analyst",f"{g['name']} is credited with {s['SV']} saves in the verified report."
+                          +(f" The reported save percentage is {s['SV%']}." if s.get("SV%") else "")))
+    if losing_goalies and rng.random()<0.55:
+        g=losing_goalies[0];s=g.get("stats",{})
+        if "SV" in s:
+            lines.append(("play",f"Before we wrap up, what was the goaltending number for {loser}?"))
+            lines.append(("analyst",f"{g['name']} finished with {s['SV']} recorded saves."))
+
+    lines.append(("play",rng.choice((
+        "Put it all together: the score, the standout scorers, and those confirmed goaltending numbers.",
+        "The individual stats add real color to that final result.",
+        "The final score tells you who won. The box score lets us recognize the contributors.",
+    ))))
+    # Official stars are only included if the feed provides explicit rankings.
+    stars=(box or {}).get("three_stars")
+    if isinstance(stars,list) and len(stars)>=3 and all(
+        isinstance(item,dict) and item.get("name") and item.get("rank")==i
+        for i,item in enumerate(stars[:3],1)
+    ):
+        names=[item["name"] for item in stars[:3]]
+        lines.append(("analyst",f"The verified Three Stars: first, {names[0]}; second, {names[1]}; and third, {names[2]}."))
+    else:
+        lines.append(("analyst",rng.choice((
+            "Those are the confirmed performances we'll remember from this matchup.",
+            "And that gives you the story of the recorded numbers without guessing about unreported shifts or scoring order.",
+            "There is plenty to talk about in those player totals, even without a verified play-by-play timeline.",
         ))))
-        sections.append(("analyst",_player(p,rng)))
-    if cgoalies and (not player or player is not cgoalies[0]) and len(leaders)>1:
-        goalie=cgoalies[0]
-        sections.append(("play","And what do the verified goaltending numbers tell us?"))
-        sections.append(("analyst",_player(goalie,rng)))
-    if rival_player:
-        sections.append(("play",f"Fair enough. What about {rival_name}?"))
-        sections.append(("analyst",_player(rival_player,rng)))
-    if len(rival_leaders)>1:
-        sections.append(("play",f"Any other {rival_name} names to note from this box score?"))
-        sections.append(("analyst",_player(rival_leaders[1],rng)))
-    # Team-level observations must come from an actual validated comparison.
-    match=(box or {}).get("match",{})
-    if match and isinstance(match,dict):
-        for metric in ("Shots","Hits","Takeaways"):
-            values=match.get(metric)
-            if not isinstance(values,(tuple,list)) or len(values)!=2:continue
-            try:
-                left,right=float(values[0]),float(values[1])
-            except (ValueError,TypeError):continue
-            if left<0 or right<0:continue
-            # Match source uses away/home order. Never assign a statistic to
-            # a particular club unless the source explicitly declares order.
-            sections.append(("play",f"Now let's compare the teams in {metric.lower()}."))
-            sections.append(("analyst",
-                f"The verified comparison lists {int(left) if left.is_integer() else left} "
-                f"and {int(right) if right.is_integer() else right} for {metric.lower()}, "
-                "respectively, in its displayed order."))
-            break
-    if len(caps)>=3 and any(number(p,"SH")>0 for p in caps):
-        shooter=max(caps,key=lambda p:number(p,"SH"))
-        attempts=number(shooter,"SH")
-        if attempts:
-            sections.append(("play","One more Washington detail from the individual numbers: the shooting totals."))
-            sections.append(("analyst",f"{shooter['name']} is credited with {attempts} shots. "
-                             "That gives us another measurable piece of the game, without guessing at a scoring sequence."))
-    sections.append(("play",rng.choice((
-        "Now, the final margin. Just one goal separates the teams." if close else f"The final margin is {abs(wsh-other)} goals.",
-        "It's a one-goal final on the scoreboard." if close else f"A {abs(wsh-other)}-goal margin on the final scoreboard.",
-    ))))
-    sections.append(("analyst",rng.choice((
-        "One goal separates the teams, and that is a tight final on paper." if close else f"The margin is {abs(wsh-other)} goals, and that number is final.",
-        "The final margin tells us where the matchup ended; the players' totals add the context.",
-        "Exactly. Those numbers are the record, and the next game gives both teams another chance.",
-    ))))
     if won:
-        sections.append(("play",rng.choice((
-            "Washington gets the victory. That's this chapter of the Capitals season.",
-            "A win for the Capitals. Another result goes into the CHL record.",
-        ))))
-        sections.append(("analyst","And that's what makes this league fun to follow. Every game adds another chapter."))
+        final=rng.choice((
+            "A strong result for the Capitals, and another game in the books. On to the next!",
+            "Washington claims the victory. That's your Capitals postgame story!",
+            "Put a win beside Washington's name. The next CHL matchup is already another opportunity!",
+        ))
     else:
-        sections.append(("play",rng.choice((
-            f"The win goes to {rival_name}. Washington will look for a response next time.",
-            "The Capitals come up short in the final. The season continues.",
-        ))))
-        sections.append(("analyst","Exactly. You can't change the final. You can decide how you respond next game."))
-    # Return structured dialogue so TTS and posted transcript share the same
-    # verified statements. Preserve strict turn-taking.
-    return [(role,text.strip()) for role,text in sections if text and text.strip()]
+        final=rng.choice((
+            f"{rival_name} gets the win, and the Capitals get another chance to answer next game.",
+            "Not the ending Washington wanted, but another matchup means another opportunity.",
+            f"Credit {rival_name} with the victory. For Washington, the story continues!",
+        ))
+    lines.append(("play",final))
+    return [(role,text.strip()) for role,text in lines if text and text.strip()]
 
 def print_transcript(lines):
     return "\n\n".join(("PLAY-BY-PLAY" if role=="play" else "COLOR ANALYST")+": "+text
