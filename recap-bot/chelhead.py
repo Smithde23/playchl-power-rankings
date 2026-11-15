@@ -59,8 +59,8 @@ def card_candidates(cards,g):
         # exists on the same date. Never match on unordered 6/7 scores.
         away_alias="|".join(re.escape(x) for x in NAMES[g["away"]])
         home_alias="|".join(re.escape(x) for x in NAMES[g["home"]])
-        ordered=(r"(?:CHL27\\s+)?(?:"+away_alias+r")\\s+"+str(g["a"])
-                 +r"\\s+at\\s+(?:CHL27\\s+)?(?:"+home_alias+r")\\s+"+str(g["h"])+r"\\b")
+        ordered=(r"(?:CHL27\s+)?(?:"+away_alias+r")\s+"+str(g["a"])
+                 +r"\s+at\s+(?:CHL27\s+)?(?:"+home_alias+r")\s+"+str(g["h"])+r"\b")
         # JS card text is already collapsed; normalize to uppercase.
         if not re.search(ordered,text.upper()):continue
         age=minutes_ago(text)
