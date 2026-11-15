@@ -107,7 +107,7 @@ def make_dialogue(game,box,style="score_first",rng=None):
         "It's a one-goal final on the scoreboard." if close else f"A {abs(wsh-other)}-goal margin on the final scoreboard.",
     ))))
     sections.append(("analyst",rng.choice((
-        "One goal separates the teams, and that is a tight final on paper.",
+        "One goal separates the teams, and that is a tight final on paper." if close else f"The margin is {abs(wsh-other)} goals, and that number is final.",
         "The final margin tells us where the matchup ended; the players' totals add the context.",
         "Exactly. Those numbers are the record, and the next game gives both teams another chance.",
     ))))
