@@ -8,6 +8,7 @@ from discord.ext import commands,tasks
 from playwright.async_api import async_playwright
 from PIL import Image,ImageDraw,ImageFont
 from dotenv import load_dotenv
+from stats import discover_schedule_links,fetch_box,noteworthy
 load_dotenv();logging.basicConfig(level=logging.INFO);log=logging.getLogger("chl.recaps")
 TEAMS={"ANA":"Anaheim","BUF":"Buffalo","CGY":"Calgary","DET":"Detroit","MIN":"Minnesota","SEA":"Seattle","SJS":"San Jose","UTAH":"Utah","VGK":"Vegas","WSH":"Washington"}
 MON={m:i+1 for i,m in enumerate("Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split())}
@@ -28,7 +29,8 @@ def conn():
     c=sqlite3.connect(DB,timeout=30);c.row_factory=sqlite3.Row
     c.execute("PRAGMA busy_timeout=30000")
     c.executescript("""CREATE TABLE IF NOT EXISTS games(id TEXT PRIMARY KEY,date TEXT,away TEXT,home TEXT,a INTEGER,h INTEGER,status TEXT,posted TEXT,post_id TEXT);
-    CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY,v TEXT);""")
+    CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY,v TEXT);
+    CREATE TABLE IF NOT EXISTS box_cache(game_id TEXT PRIMARY KEY,game_url TEXT,box_json TEXT,updated_at TEXT);""")
     return c
 def parse(text):
     now=datetime.now(timezone.utc);out=[]
@@ -56,6 +58,10 @@ async def scrape():
             await page.wait_for_timeout(2000)
             data=parse(await page.locator("body").inner_text(timeout=20000))
             if not data:raise RuntimeError("No completed games matched PlayCHL schedule")
+            links=await discover_schedule_links(page,data)
+            for g in data:
+                if g["id"] in links:g["game_url"]=links[g["id"]]
+            log.info("Matched %d Washington game detail links",len(links))
             return data
         finally:await b.close()
 def ingest(c,data):
@@ -69,6 +75,9 @@ def ingest(c,data):
         elif (old["a"],old["h"],old["status"])!=(g["a"],g["h"],g["status"]):
             log.warning("Score correction detected for %s; prior recaps are not silently overwritten",g["id"])
             c.execute("UPDATE games SET a=?,h=?,status=? WHERE id=?",(g["a"],g["h"],g["status"],g["id"]))
+        if g.get("game_url"):
+            c.execute("INSERT OR IGNORE INTO box_cache(game_id,game_url,box_json,updated_at) VALUES(?,?,NULL,NULL)",(g["id"],g["game_url"]))
+            c.execute("UPDATE box_cache SET game_url=? WHERE game_id=?",(g["game_url"],g["id"]))
     if initial:c.execute("INSERT INTO meta VALUES('ready','yes')")
     c.commit()
     return n,initial
@@ -85,7 +94,7 @@ def facts(game,history):
             w+=score>other;l+=score<other
         return w,l
     return win,lose,record(win),record(lose),sum({g["away"],g["home"]}=={win,lose} for g in prior)
-def article(g,history):
+def article(g,history,box=None):
     win,lose,wr,lr,h2h=facts(g,history);margin=abs(g["a"]-g["h"])
     when=datetime.fromisoformat(g["date"]).astimezone(ET).strftime("%B %d, %Y")
     if g["status"]=="Forfeit":
@@ -94,14 +103,87 @@ def article(g,history):
     else:
         opener=(TEAMS[win]+" defeated "+TEAMS[lose]+" "+str(max(g["a"],g["h"]))+"–"+str(min(g["a"],g["h"]))+
                 " in a completed Continental Hockey League game on "+when+". The "+str(margin)+"-goal margin tells the story of the final score without guessing at unverified in-game moments.")
-    return (opener+"\n\n"+TEAMS[g["away"]]+" was listed as the away team and "+TEAMS[g["home"]]+" as the home team. The two clubs finished with "+
+    base=(opener+"\n\n"+TEAMS[g["away"]]+" was listed as the away team and "+TEAMS[g["home"]]+" as the home team. The two clubs finished with "+
         str(g["a"])+" and "+str(g["h"])+" recorded goals, respectively.\n\n"+
         "Based only on earlier non-forfeit results currently collected from the PlayCHL schedule, "+
         TEAMS[win]+" entered at "+str(wr[0])+"–"+str(wr[1])+" and "+TEAMS[lose]+" at "+str(lr[0])+"–"+str(lr[1])+
         ". The imported schedule shows "+str(h2h)+" earlier verified meeting(s) between these clubs. "+
         "Those figures describe the games currently imported, not necessarily official full-season standings.\n\n"+
-        "The result now becomes part of both teams' recorded schedules. Individual scorers, assists, period-by-period scoring, goaltending statistics and game-changing plays are not asserted because this schedule feed does not verify them.")
-def script(g):
+        "The result now becomes part both teams\' recorded schedules.")
+    return cinematic(g,box,base)
+
+def cinematic(g,box,base):
+    """Cinematic structure with verifiable tension; no fabricated shifts, goals or sequences."""
+    aw=TEAMS[g["away"]];ho=TEAMS[g["home"]]
+    cap_won=(g["away"]=="WSH" and g["a"]>g["h"]) or (g["home"]=="WSH" and g["h"]>g["a"])
+    foe=ho if g["away"]=="WSH" else aw
+    lead=("THE CAPITALS ANSWER THE CALL" if cap_won else "A NIGHT OF HARD LESSONS FOR WASHINGTON")
+    margin=abs(g["a"]-g["h"])
+    intro=(f"**{lead}**\n\nUnder the CHL spotlight, Washington met {foe} with another result on the line. "
+           f"By the final horn, the scoreboard read {g['away']} {g['a']} – {g['h']} {g['home']}. "
+           +("Washington owned the final result. " if cap_won else "Washington was on the wrong side of the final score. ")
+           +("Only one goal separated the teams." if margin==1 else f"The final margin was {margin} goals."))
+    if g["status"]=="Forfeit":
+        return ("**OFFICIAL RESULT — FORFEIT**\n\n"+base+
+                "\n\nThis outcome reflects an administrative result, not a verified on-ice contest.")
+    if not box:
+        return (intro+"\n\n**THE SCOREBOARD**\n"+base+
+                "\n\n**BEYOND THE FINAL HORN**\nThis is the confirmed result. No player names or plays are attributed to this game because its individual box score could not be verified.")
+    match=box.get("match",{})
+    metrics=[]
+    for metric in ("Shots","Hits","TOA","Faceoffs%","Blocks","Takeaways","Giveaways"):
+        vals=match.get(metric)
+        if vals and len(vals)==2:metrics.append(metric+": "+str(vals[0])+" / "+str(vals[1]))
+    stats=("\n".join(metrics) if metrics else "No validated team comparison available.")
+    players=[]
+    for team in (g["away"],g["home"]):
+        chosen=noteworthy(box,team)
+        for p in chosen[:3]:
+            s=p["stats"]
+            fragments=[]
+            for k,v in (("G","goals"),("A","assists"),("P","points"),("SH","shots"),("HIT","hits"),("SV","saves"),("SV%","save rate")):
+                if k in s:fragments.append(str(s[k])+" "+v)
+            if fragments:players.append("**"+p["name"]+" ("+team+")** — "+", ".join(fragments))
+    names="\n".join(players) if players else "Individual box-score entries not independently validated."
+    story=[]
+    for team in (g["away"],g["home"]):
+        top=noteworthy(box,team)
+        if not top:continue
+        p=top[0];s=p["stats"]
+        if s.get("P") and s["P"]!="0":
+            story.append(p["name"]+" supplied "+s["P"]+" recorded point(s) for "+TEAMS[team]+".")
+        elif s.get("SV"):story.append(p["name"]+" logged "+s["SV"]+" saves for "+TEAMS[team]+".")
+    narrative=" ".join(story)
+    return (intro+"\n\n**THE NAMES BEHIND THE NUMBERS**\n"+narrative+
+            "\n\n**PLAYER BOX SCORE**\n"+names+
+            "\n\n**GAME BY THE NUMBERS**\n"+stats+
+            "\n\n**THE FINAL CHAPTER**\n"+base+
+            "\n\nSource: "+box["url"]+
+            "\n\n*The recap describes verified totals, not an invented scoring timeline or play-by-play.*")
+
+def voice_story(g,box):
+    if g["status"]=="Forfeit":return script(g)
+    cap_win=(g["away"]=="WSH" and g["a"]>g["h"]) or (g["home"]=="WSH" and g["h"]>g["a"])
+    opponent=TEAMS[g["home"] if g["away"]=="WSH" else g["away"]]
+    capscore=g["a"] if g["away"]=="WSH" else g["h"]
+    oppscore=g["h"] if g["away"]=="WSH" else g["a"]
+    v=("The Capitals walk away with the victory." if cap_win else "The Capitals come up short on the scoreboard.")
+    opening=("Lights on. The CHL spotlight turns to Washington. The Capitals meet "+opponent+
+             ". And at the final horn, the score says Washington "+str(capscore)+", "+opponent+" "+str(oppscore)+". "+v)
+    if not box:return opening+" That's the verified final result. We'll have more when the full box score is available."
+    speech=[opening]
+    for team in ("WSH",g["home"] if g["away"]=="WSH" else g["away"]):
+        chosen=noteworthy(box,team)
+        for p in chosen[:2]:
+            s=p["stats"]
+            if s.get("P") and s["P"]!="0":
+                speech.append(p["name"]+" finished with "+s["P"]+" points, on "+s.get("G","0")+" goals and "+s.get("A","0")+" assists.")
+            elif s.get("SV"):
+                speech.append(p["name"]+" recorded "+s["SV"]+" saves.")
+    speech.append("Those are the verified numbers behind this matchup. One result. Another chapter in the Washington Capitals season.")
+    return " ".join(speech)
+
+def script(g,box=None):
     win,lose,_,_,_=facts(g,[])
     x,y=max(g["a"],g["h"]),min(g["a"],g["h"])
     if g["status"]=="Forfeit":
@@ -138,12 +220,32 @@ async def post(gid):
             if not is_focus_game(row):return "Only Washington Capitals (WSH) games are eligible for recaps."
             if row["post_id"]:return "Already posted."
             history=[dict(x) for x in c.execute("SELECT * FROM games ORDER BY date")]
-        g=dict(row);body=article(g,history);audio=None
-        try:audio=await asyncio.wait_for(narrate(script(g)),timeout=50)
+        g=dict(row)
+        box=None
+        if g["status"]!="Forfeit":
+            with conn() as c:
+                cached=c.execute("SELECT game_url,box_json FROM box_cache WHERE game_id=?",(gid,)).fetchone()
+            if cached:
+                if cached["box_json"]:
+                    try:box=__import__("json").loads(cached["box_json"])
+                    except Exception:pass
+                elif cached["game_url"]:
+                    try:
+                        async with async_playwright() as p:
+                            browser=await p.chromium.launch(headless=True,args=["--no-sandbox"])
+                            try:box=await fetch_box(browser,cached["game_url"],g["away"],g["home"],g["a"],g["h"])
+                            finally:await browser.close()
+                        if box:
+                            with conn() as c:
+                                c.execute("UPDATE box_cache SET box_json=?,updated_at=? WHERE game_id=?",(__import__("json").dumps(box),datetime.now(timezone.utc).isoformat(),gid));c.commit()
+                    except Exception as exc:log.warning("Boxscore fetch failed: %s",exc)
+        body=article(g,history,box);audio=None
+        try:audio=await asyncio.wait_for(narrate(voice_story(g,box)),timeout=50)
         except Exception as exc:log.warning("Narration failed for %s: %s",gid,exc)
         channel=bot.get_channel(CHANNEL) or await bot.fetch_channel(CHANNEL)
         e=discord.Embed(title="CHL RECAP | "+g["away"]+" "+str(g["a"])+" – "+str(g["h"])+" "+g["home"],description=body,color=0x1698CE)
         e.set_image(url="attachment://recap.png")
+        if box and box.get("url"):e.add_field(name="Verified box score",value="[Game stats on PlayCHL]("+box["url"]+")",inline=False)
         e.set_footer(text="PlayCHL result-based report • No invented statistics or play-by-play")
         attachments=[discord.File(io.BytesIO(graphic(g)),filename="recap.png")]
         if audio:attachments.append(discord.File(io.BytesIO(audio),filename="recap-narration.mp3"))
@@ -184,7 +286,7 @@ async def recap_recent(i:discord.Interaction):
     with conn() as c:r=c.execute("SELECT * FROM games WHERE away=? OR home=? ORDER BY date DESC LIMIT 12",(FOCUS_TEAM,FOCUS_TEAM)).fetchall()
     lines=[str(datetime.fromisoformat(x["date"]).astimezone(ET).strftime("%m/%d"))+" "+x["away"]+" "+str(x["a"])+"–"+str(x["h"])+" "+x["home"]+" | ID "+x["id"] for x in r]
     await i.response.send_message("\n".join(lines) if lines else "No game results imported yet.",ephemeral=True)
-@bot.tree.command(name="recap_status",description="Check recap history and pending games")
+@bot.tree.command(name="recap_status",description="Check Washington Capitals recap history and pending games")
 async def recap_status(i:discord.Interaction):
     with conn() as c:
         total=c.execute("SELECT COUNT(*) FROM games WHERE away=? OR home=?",(FOCUS_TEAM,FOCUS_TEAM)).fetchone()[0]
