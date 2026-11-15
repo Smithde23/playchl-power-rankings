@@ -53,9 +53,9 @@ def build_narration(game,box=None,style=None,rng=None):
     won=wsh>other
     margin=abs(wsh-other)
     if g.get("status")=="Forfeit":
-        return (f"Continental Hockey League official result. Washington and {opponent} have a "
-                f"recorded forfeit: Capitals {wsh}, {opponent} {other}. "
-                "This is an administrative result, not a played-game highlight.")
+        return ((f"Continental Hockey League official result. Washington and {opponent} have a "
+                 f"recorded forfeit: Capitals {wsh}, {opponent} {other}. "
+                 "This is an administrative result, not a played-game highlight."), "forfeit")
     if style not in STYLES:style=rng.choice(STYLES)
     caps,cap_goalies=top_players(box,"WSH")
     opp,opp_goalies=top_players(box,opponent_code)
