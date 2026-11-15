@@ -182,7 +182,14 @@ def voice_story(g,box):
                 speech.append(p["name"]+" finished with "+s["P"]+" points, on "+s.get("G","0")+" goals and "+s.get("A","0")+" assists.")
             elif s.get("SV"):
                 speech.append(p["name"]+" recorded "+s["SV"]+" saves.")
-    speech.append("Those are the verified numbers behind this matchup. One result. Another chapter in the Washington Capitals season.")
+    if box.get("match"):
+        m=box["match"]
+        shots=m.get("Shots")
+        if shots and len(shots)==2:
+            speech.append("The official team comparison lists "+str(shots[0])+" shots on one side, and "+str(shots[1])+" on the other.")
+    speech.append(("The victory belongs to Washington." if cap_win else "The final score favors "+opponent+".")
+                   +" These are the numbers, the names, and the stakes we can confirm. "
+                   "The next game brings a new chapter. This one belongs in the Capitals record books.")
     return " ".join(speech)
 
 def script(g,box=None):
@@ -263,7 +270,9 @@ async def post(gid):
         channel=bot.get_channel(CHANNEL) or await bot.fetch_channel(CHANNEL)
         e=discord.Embed(title="CHL RECAP | "+g["away"]+" "+str(g["a"])+" – "+str(g["h"])+" "+g["home"],description=body,color=0x1698CE)
         e.set_image(url="attachment://recap.png")
-        if box and box.get("url"):e.add_field(name="Verified box score",value="[Game stats on PlayCHL]("+box["url"]+")",inline=False)
+        if box and box.get("url"):
+            provider="CHEL HEAD" if box.get("source")=="chelhead" else "PlayCHL"
+            e.add_field(name="Verified player statistics",value="[View "+provider+" source]("+box["url"]+")",inline=False)
         e.set_footer(text="PlayCHL result-based report • No invented statistics or play-by-play")
         attachments=[discord.File(io.BytesIO(graphic(g,box)),filename="recap.png")]
         motion=await render_video(g,box,audio)
