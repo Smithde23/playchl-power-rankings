@@ -163,7 +163,7 @@ async def fetch_fallback(game):
         try:
             page=await browser.new_page(viewport={"width":1440,"height":900})
             await page.goto(URL,wait_until="domcontentloaded",timeout=60000)
-            await page.get_by_text("Matches",exact=True).first.click(timeout=12000)
+            await page.locator('ion-segment-button[value="matches"]').click(timeout=12000)
             try:await page.get_by_text("RECENT MATCHES",exact=False).first.wait_for(timeout=20000)
             except Exception:pass
             await page.wait_for_timeout(3000)
@@ -180,7 +180,7 @@ async def fetch_fallback(game):
             candidate=matched[0]
             await page.locator('[data-chl-matchcard="'+candidate["id"]+'"]').click(timeout=8000)
             await page.get_by_text("SUMMARY",exact=True).first.wait_for(timeout=8000)
-            await page.get_by_text("PLAYERS",exact=True).last.click(timeout=8000)
+            await page.locator('ion-segment-button[value="players"]').last.click(timeout=8000)
             await page.wait_for_timeout(600)
             # Popup text extracted in DOM reading order; not a navigation URL.
             modal=await page.evaluate("""() => {
