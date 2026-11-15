@@ -163,6 +163,7 @@ async def fetch_fallback(game):
         try:
             page=await browser.new_page(viewport={"width":1440,"height":900})
             await page.goto(URL,wait_until="domcontentloaded",timeout=60000)
+            await page.get_by_text("Matches",exact=True).first.click(timeout=12000)
             try:await page.get_by_text("RECENT MATCHES",exact=False).first.wait_for(timeout=20000)
             except Exception:pass
             await page.wait_for_timeout(3000)
