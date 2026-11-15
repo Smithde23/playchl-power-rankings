@@ -53,6 +53,16 @@ def card_candidates(cards,g):
         if "WASHINGTON CAPITALS" not in text.upper() or not rival_code(text,g):continue
         values=re.findall(r"(?<!\d)\d{1,2}(?!\d)",text)
         if str(target_score) not in values or str(other_score) not in values:continue
+        # ChelHead exposes a spoken-accessible line with precise away/home order:
+        # "WASHINGTON CAPITALS 6 at UTAH MAMMOTH 7".
+        # This is critical when the reverse fixture (Utah 6 at Washington 7)
+        # exists on the same date. Never match on unordered 6/7 scores.
+        away_alias="|".join(re.escape(x) for x in NAMES[g["away"]])
+        home_alias="|".join(re.escape(x) for x in NAMES[g["home"]])
+        ordered=(r"(?:CHL27\\s+)?(?:"+away_alias+r")\\s+"+str(g["a"])
+                 +r"\\s+at\\s+(?:CHL27\\s+)?(?:"+home_alias+r")\\s+"+str(g["h"])+r"\\b")
+        # JS card text is already collapsed; normalize to uppercase.
+        if not re.search(ordered,text.upper()):continue
         age=minutes_ago(text)
         if age is None:continue
         when=datetime.now(ET)-timedelta(minutes=age)
