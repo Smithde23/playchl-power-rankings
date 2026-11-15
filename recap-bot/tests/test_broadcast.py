@@ -52,10 +52,15 @@ class BroadcastTests(unittest.TestCase):
             samples.append(data)
         combined=_join_mp3(samples,120)
         self.assertGreater(len(combined),2000)
-        probe=subprocess.run(
-            ["ffprobe","-v","error","-f","mp3","-show_entries","format=duration",
-             "-of","default=noprint_wrappers=1:nokey=1","pipe:0"],
-            input=combined,capture_output=True,check=True,timeout=10)
-        self.assertGreater(float(probe.stdout.strip()),0.8)
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as work:
+            output=Path(work)/"two-hosts.mp3"
+            output.write_bytes(combined)
+            probe=subprocess.run(
+                ["ffprobe","-v","error","-show_entries","format=duration",
+                 "-of","default=noprint_wrappers=1:nokey=1",str(output)],
+                capture_output=True,check=True,timeout=10)
+            self.assertGreater(float(probe.stdout.strip()),0.8)
 
 if __name__=="__main__":unittest.main()
