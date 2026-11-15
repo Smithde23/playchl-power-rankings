@@ -12,6 +12,9 @@ load_dotenv();logging.basicConfig(level=logging.INFO);log=logging.getLogger("chl
 TEAMS={"ANA":"Anaheim","BUF":"Buffalo","CGY":"Calgary","DET":"Detroit","MIN":"Minnesota","SEA":"Seattle","SJS":"San Jose","UTAH":"Utah","VGK":"Vegas","WSH":"Washington"}
 MON={m:i+1 for i,m in enumerate("Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split())}
 ET=ZoneInfo("America/New_York")
+FOCUS_TEAM="WSH"
+def is_focus_game(game):
+    return FOCUS_TEAM in (game["away"],game["home"])
 PAT=re.compile(r"(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{1,2})\s+(\d{1,2}):(\d\d)\s*(AM|PM)\s+UTC\s+(?:(?:REG|PO|PRE|POST|PLAYOFF)\s+)?(ANA|BUF|CGY|DET|MIN|SEA|SJS|UTAH|VGK|WSH)\s+AWAY\s+(\d+)\s*[-–:]\s*(\d+)\s+(ANA|BUF|CGY|DET|MIN|SEA|SJS|UTAH|VGK|WSH)\s+HOME\s+(Final|Forfeit)\b",re.I)
 TOKEN=os.getenv("DISCORD_TOKEN","")
 GUILD=int(os.getenv("GUILD_ID","0"));CHANNEL=int(os.getenv("RECAP_CHANNEL_ID","0"))
@@ -132,6 +135,7 @@ async def post(gid):
         with conn() as c:
             row=c.execute("SELECT * FROM games WHERE id=?",(gid,)).fetchone()
             if not row:return "Game not found."
+            if not is_focus_game(row):return "Only Washington Capitals (WSH) games are eligible for recaps."
             if row["post_id"]:return "Already posted."
             history=[dict(x) for x in c.execute("SELECT * FROM games ORDER BY date")]
         g=dict(row);body=article(g,history);audio=None
@@ -152,7 +156,7 @@ async def refresh():
     data=await scrape()
     with conn() as c:
         added,first=ingest(c,data)
-        queue=[x["id"] for x in c.execute("SELECT id FROM games WHERE posted IS NULL ORDER BY date LIMIT 6")]
+        queue=[x["id"] for x in c.execute("SELECT id FROM games WHERE posted IS NULL AND (away=? OR home=?) ORDER BY date LIMIT 6",(FOCUS_TEAM,FOCUS_TEAM))]
     done=0
     for gid in queue:
         try:await post(gid);done+=1
@@ -175,17 +179,17 @@ async def ticker():
 @ticker.before_loop
 async def before():await bot.wait_until_ready()
 def admin(i):return bool(i.guild and i.user.guild_permissions.manage_guild)
-@bot.tree.command(name="recap_recent",description="List recent completed CHL games and IDs")
+@bot.tree.command(name="recap_recent",description="List recent Washington Capitals games and IDs")
 async def recap_recent(i:discord.Interaction):
-    with conn() as c:r=c.execute("SELECT * FROM games ORDER BY date DESC LIMIT 12").fetchall()
+    with conn() as c:r=c.execute("SELECT * FROM games WHERE away=? OR home=? ORDER BY date DESC LIMIT 12",(FOCUS_TEAM,FOCUS_TEAM)).fetchall()
     lines=[str(datetime.fromisoformat(x["date"]).astimezone(ET).strftime("%m/%d"))+" "+x["away"]+" "+str(x["a"])+"–"+str(x["h"])+" "+x["home"]+" | ID "+x["id"] for x in r]
     await i.response.send_message("\n".join(lines) if lines else "No game results imported yet.",ephemeral=True)
 @bot.tree.command(name="recap_status",description="Check recap history and pending games")
 async def recap_status(i:discord.Interaction):
     with conn() as c:
-        total=c.execute("SELECT COUNT(*) FROM games").fetchone()[0]
-        sent=c.execute("SELECT COUNT(*) FROM games WHERE post_id IS NOT NULL").fetchone()[0]
-        queued=c.execute("SELECT COUNT(*) FROM games WHERE posted IS NULL").fetchone()[0]
+        total=c.execute("SELECT COUNT(*) FROM games WHERE away=? OR home=?",(FOCUS_TEAM,FOCUS_TEAM)).fetchone()[0]
+        sent=c.execute("SELECT COUNT(*) FROM games WHERE post_id IS NOT NULL AND (away=? OR home=?)",(FOCUS_TEAM,FOCUS_TEAM)).fetchone()[0]
+        queued=c.execute("SELECT COUNT(*) FROM games WHERE posted IS NULL AND (away=? OR home=?)",(FOCUS_TEAM,FOCUS_TEAM)).fetchone()[0]
     await i.response.send_message("Completed games: "+str(total)+" | Recaps posted: "+str(sent)+" | Pending: "+str(queued)+" | Poll: "+str(PERIOD)+" min",ephemeral=True)
 @bot.tree.command(name="recap_refresh",description="Admin: refresh completed games and post new recaps")
 async def recap_refresh(i:discord.Interaction):
@@ -194,7 +198,7 @@ async def recap_refresh(i:discord.Interaction):
     try:msg=str(await refresh())
     except Exception as exc:msg="Scan failed: "+str(exc)[:300]
     await i.followup.send(msg,ephemeral=True)
-@bot.tree.command(name="recap_game",description="Admin: publish the recap for a completed game ID")
+@bot.tree.command(name="recap_game",description="Admin: publish a Washington Capitals game recap")
 @app_commands.describe(game_id="From /recap_recent")
 async def recap_game(i:discord.Interaction,game_id:str):
     if not admin(i):return await i.response.send_message("Manage Server permission required.",ephemeral=True)
