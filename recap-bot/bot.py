@@ -283,6 +283,22 @@ async def refresh():
     for gid in queue:
         try:await post(gid);done+=1
         except Exception:log.exception("Failed to post %s; will retry",gid)
+    if not getattr(bot,"chel_probe_done",False):
+        bot.chel_probe_done=True
+        with conn() as dbc:
+            recent=[dict(x) for x in dbc.execute(
+                "SELECT * FROM games WHERE (away='WSH' OR home='WSH') AND status='Final' ORDER BY date DESC LIMIT 10")]
+        now=datetime.now(timezone.utc)
+        candidates=[g for g in recent if 0<=(now-datetime.fromisoformat(g["date"])).total_seconds()<2*86400]
+        if candidates:
+            try:
+                sample=candidates[0]
+                probe=await asyncio.wait_for(fetch_fallback(sample),timeout=65)
+                log.info("CHELHEAD self-check game=%s opponent=%s score=%s-%s players=%s",
+                         sample["id"],sample["home"] if sample["away"]=="WSH" else sample["away"],
+                         sample["a"],sample["h"],len(probe["players"]) if probe else "unverified")
+            except Exception:log.exception("CHELHEAD self-check failed")
+        else:log.info("CHELHEAD self-check: no recent eligible Capitals games within 48h")
     return dict(scanned=len(data),added=added,first=first,posted=done)
 @bot.event
 async def on_ready():
