@@ -61,27 +61,32 @@ def card_candidates(cards,g):
     return results
 
 async def clickable_cards(page):
+    """Find rendered match cards without relying on brittle leaf DOM shapes."""
     return await page.evaluate("""() => {
-      const focus=[...document.querySelectorAll('*')].filter(e=>
-        e.children.length===0 && (e.textContent||'').trim().toUpperCase()==='CHL27 WASHINGTON CAPITALS');
-      const out=[],seen=new Set();
-      for (const el of focus) {
-        let a=el;
-        for(let depth=0;depth<8 && a;depth++,a=a.parentElement){
-          const text=(a.innerText||'').replace(/\\s+/g,' ').trim();
-          const rect=a.getBoundingClientRect();
-          if(text.length>30 && text.length<550 && /(?:ago|today|yesterday)/i.test(text) &&
-              rect.width>180 && rect.height>70){
-            if(!seen.has(a)){
-              const id='chl-card-'+out.length;
-              a.setAttribute('data-chl-matchcard',id);
-              seen.add(a);out.push({id,text});
-            }
-            break;
-          }
-        }
+      const possible=[...document.querySelectorAll('article, button, div, [role=button], a')];
+      const picked=[];
+      for(const el of possible){
+        const rect=el.getBoundingClientRect();
+        if(rect.width<180 || rect.height<55 || rect.height>360)continue;
+        const raw=(el.innerText||'').replace(/\\s+/g,' ').trim();
+        const t=raw.toUpperCase();
+        if(raw.length<35 || raw.length>650 || !t.includes('WASHINGTON CAPITALS'))continue;
+        if(!/(?:\\d+\\s*(?:hour|day|week|minute)s?\\s+ago|yesterday|today)/i.test(raw))continue;
+        if(!t.includes('CHL27') || !/\\b\\d{1,2}\\b/.test(raw))continue;
+        picked.push({element:el,text:raw,size:raw.length});
       }
-      return out;
+      // Keep the smallest qualifying container for each card; remove broad wrappers.
+      const minimal=picked.filter(c=>!picked.some(d=>d!==c && c.element.contains(d.element) && d.size<c.size));
+      const out=[];const seen=new Set();
+      for(const cand of minimal.sort((a,b)=>a.size-b.size)){
+        const key=cand.text;
+        if(seen.has(key))continue;
+        seen.add(key);
+        const id='chl-card-'+out.length;
+        cand.element.setAttribute('data-chl-matchcard',id);
+        out.push({id,text:cand.text});
+      }
+      return out.slice(0,200);
     }""")
 
 def extract_box(text,g):
@@ -162,6 +167,10 @@ async def fetch_fallback(game):
             except Exception:pass
             await page.wait_for_timeout(3000)
             cards=await clickable_cards(page)
+            if not cards:
+                excerpt=clean((await page.locator("body").inner_text(timeout=10000))[:1600])
+                log.warning("CHELHEAD rendered no selectable match cards; page excerpt=%r",excerpt[:900])
+            else:log.info("CHELHEAD rendered %d selectable club match cards",len(cards))
             matched=card_candidates(cards,game)
             if len(matched)!=1:
                 log.info("CHELHEAD match resolution %s: %d cards, %d plausible for %s %s-%s %s",
