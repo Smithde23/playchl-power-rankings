@@ -70,59 +70,59 @@ def make_dialogue(game,box,style="score_first",rng=None):
     rival_player=rival_leaders[0] if rival_leaders else (ogoalies[0] if ogoalies else None)
     intros={
         "score_first":(f"Washington and {rival_name}. The final is in. {result}",
-                       "Those are the verified numbers. Let's talk about the performances behind them."),
+                       "That score catches your eye. Now let's look at the players who put up the numbers."),
         "player_first":(f"Welcome to the Capitals postgame desk. The score is final: {result}",
-                        "This time, the names on the score sheet deserve the attention."),
+                        "Absolutely. There's a player performance worth talking about here."),
         "matchup":(f"Two clubs, one CHL matchup. The Capitals face {rival_name}, and the result is {result}",
-                   "Start with the score, then ask what the individual numbers actually tell us."),
+                   "Exactly. Let's get into the numbers behind that result."),
         "scoreboard":(f"The final horn is in the books. Washington against {rival_name}: {result}",
-                      "The final scoreboard is the fact we know; let's break down the confirmed box score."),
+                      "Right. And I want to look at what the box score says about both clubs."),
         "spotlight":(f"Tonight's Capitals spotlight begins with the game result. {result}",
-                     "And the spotlight belongs to the players with verified numbers."),
+                     "I'm glad you brought that up. One Capitals name jumps right off the stat sheet."),
         "season":(f"One more chapter in the Capitals' CHL season. The official final: {result}",
-                  "Every result adds context, especially when the player numbers are available."),
+                  "And those player numbers are where this one gets interesting."),
     }
     intro,bridge=intros.get(style,intros["score_first"])
     sections=[("play",intro),("analyst",bridge)]
     if player:
-        sections.append(("play",rng.choice(("Let's start with a Capitals name.",
-                                            "A Washington performance stands out on the score sheet.",
-                                            "Here's the Capitals player to highlight."))))
+        sections.append(("play",rng.choice(("Who jumps out for Washington?",
+                                            "Give me the Capitals standout.",
+                                            "Okay, who made the biggest mark in Washington's box score?"))))
         sections.append(("analyst",_player(player,rng)))
     else:
         sections.append(("play","The verified final is available, but this game's full player report is not confirmed."))
         sections.append(("analyst","So we won't guess at goalscorers, game-changing plays, or individual performances."))
     if len(leaders)>1:
-        sections.append(("play",rng.choice(("And there was more than one Capitals contributor.",
-                                            "Another name belongs in Washington's statistical picture."))))
+        sections.append(("play",rng.choice(("And they weren't the only Capitals player putting up numbers, right?",
+                                            "What about the other Washington contributors?"))))
         sections.append(("analyst",_player(leaders[1],rng)))
     elif cgoalies and player is not cgoalies[0]:
-        sections.append(("play","What does the goaltending report say?"))
+        sections.append(("play","And between the pipes, what do the numbers show?"))
         sections.append(("analyst",_player(cgoalies[0],rng)))
     if rival_player:
-        sections.append(("play",f"And on the {rival_name} side?"))
+        sections.append(("play",f"Fair enough. What about {rival_name}?"))
         sections.append(("analyst",_player(rival_player,rng)))
     sections.append(("play",rng.choice((
         "Now, the final margin. Just one goal separates the teams." if close else f"The final margin is {abs(wsh-other)} goals.",
         "It's a one-goal final on the scoreboard." if close else f"A {abs(wsh-other)}-goal margin on the final scoreboard.",
     ))))
     sections.append(("analyst",rng.choice((
-        "And because the report doesn't give us a verified goal-by-goal timeline, we're sticking to what the score and player totals establish.",
-        "The numbers are verified. We won't pretend to know an unreported turning point or late-game sequence.",
-        "That's the documented result. The final score and confirmed player contributions speak for themselves.",
+        "One goal separates the teams, and that is a tight final on paper.",
+        "The final margin tells us where the matchup ended; the players' totals add the context.",
+        "Exactly. Those numbers are the record, and the next game gives both teams another chance.",
     ))))
     if won:
         sections.append(("play",rng.choice((
             "Washington gets the victory. That's this chapter of the Capitals season.",
             "A win for the Capitals. Another result goes into the CHL record.",
         ))))
-        sections.append(("analyst","The next matchup will bring a new story, and we'll follow the verified numbers when it arrives."))
+        sections.append(("analyst","And that's what makes this league fun to follow. Every game adds another chapter."))
     else:
         sections.append(("play",rng.choice((
             f"The win goes to {rival_name}. Washington will look for a response next time.",
             "The Capitals come up short in the final. The season continues.",
         ))))
-        sections.append(("analyst","A defeat on the record, but another opportunity waits in the next game."))
+        sections.append(("analyst","Exactly. You can't change the final. You can decide how you respond next game."))
     return [(role,text.strip()) for role,text in sections if text and text.strip()]
 
 def print_transcript(lines):
@@ -145,11 +145,13 @@ def _join_mp3(audio_list, pause_ms=170):
              "-t",str(pause_ms/1000),"-codec:a","libmp3lame","-q:a","7",str(silence)],
             capture_output=True,check=True,timeout=12)
         concat=[]
+        rng=random.SystemRandom()
         for i,chunk in enumerate(audio_list):
             target=root/f"speaker-{i:02d}.mp3"
             target.write_bytes(chunk)
             concat.append("file '"+str(target)+"'")
-            if i<len(audio_list)-1:concat.append("file '"+str(silence)+"'")
+            if i<len(audio_list)-1:
+                concat.extend(["file '"+str(silence)+"'"]*rng.choice((1,1,2,3)))
         (root/"playlist.txt").write_text("\n".join(concat)+"\n")
         result=root/"broadcast.mp3"
         process=subprocess.run(
@@ -173,8 +175,14 @@ async def synthesize_dialogue(lines,voice_index=0,play_voice=None,analyst_voice=
     gate=asyncio.Semaphore(3)
     async def speak(role,words):
         voice=p if role=="play" else a
-        rate="+8%" if role=="play" else "-1%"
-        pitch="+1Hz" if role=="play" else "-3Hz"
+        is_question=words.rstrip().endswith("?")
+        energetic=any(term in words.lower() for term in ("victory","the win","final","standout","goals","points"))
+        if role=="play":
+            rate=random.choice(("+3%","+6%","+8%","+10%")) if energetic else random.choice(("+1%","+3%","+5%"))
+            pitch=random.choice(("+0Hz","+2Hz","+4Hz")) if energetic else "+0Hz"
+        else:
+            rate=random.choice(("+1%","+3%")) if is_question else random.choice(("-5%","-3%","+0%"))
+            pitch=random.choice(("-5Hz","-3Hz","-1Hz"))
         async with gate:
             chunks=[]
             async for event in edge_tts.Communicate(words,voice=voice,rate=rate,pitch=pitch).stream():
