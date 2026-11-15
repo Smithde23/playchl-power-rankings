@@ -9,6 +9,7 @@ from playwright.async_api import async_playwright
 from PIL import Image,ImageDraw,ImageFont
 from dotenv import load_dotenv
 from stats import discover_schedule_links,fetch_box,noteworthy
+from video import render as render_video
 load_dotenv();logging.basicConfig(level=logging.INFO);log=logging.getLogger("chl.recaps")
 TEAMS={"ANA":"Anaheim","BUF":"Buffalo","CGY":"Calgary","DET":"Detroit","MIN":"Minnesota","SEA":"Seattle","SJS":"San Jose","UTAH":"Utah","VGK":"Vegas","WSH":"Washington"}
 MON={m:i+1 for i,m in enumerate("Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split())}
@@ -255,8 +256,10 @@ async def post(gid):
         if box and box.get("url"):e.add_field(name="Verified box score",value="[Game stats on PlayCHL]("+box["url"]+")",inline=False)
         e.set_footer(text="PlayCHL result-based report • No invented statistics or play-by-play")
         attachments=[discord.File(io.BytesIO(graphic(g,box)),filename="recap.png")]
-        if audio:attachments.append(discord.File(io.BytesIO(audio),filename="recap-narration.mp3"))
-        elif AUDIO:e.add_field(name="Audio",value="Narration service unavailable; the written recap is provided above.")
+        motion=await render_video(g,box,audio)
+        if motion:attachments.append(discord.File(io.BytesIO(motion),filename="capitals-cinematic-recap.mp4"))
+        if audio and not motion:attachments.append(discord.File(io.BytesIO(audio),filename="recap-narration.mp3"))
+        elif not audio and AUDIO:e.add_field(name="Audio",value="Narration service unavailable; the written recap is provided above.")
         message=await channel.send(embed=e,files=attachments,allowed_mentions=discord.AllowedMentions.none())
         with conn() as c:
             c.execute("UPDATE games SET posted=?,post_id=? WHERE id=?",(datetime.now(timezone.utc).isoformat(),str(message.id),gid));c.commit()
