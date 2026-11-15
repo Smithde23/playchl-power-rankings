@@ -173,6 +173,8 @@ async def fetch_fallback(game):
                 log.warning("CHELHEAD rendered no selectable match cards; page excerpt=%r",excerpt[:900])
             else:log.info("CHELHEAD rendered %d selectable club match cards",len(cards))
             matched=card_candidates(cards,game)
+            if len(matched)>1:
+                log.warning("CHELHEAD ambiguous game %s candidate cards: %s",game["id"],[(x["id"],x["text"][:300]) for x in matched[:5]])
             if len(matched)!=1:
                 log.info("CHELHEAD match resolution %s: %d cards, %d plausible for %s %s-%s %s",
                          game["id"],len(cards),len(matched),game["away"],game["a"],game["h"],game["home"])
