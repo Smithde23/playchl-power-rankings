@@ -320,6 +320,30 @@ async def recap_refresh(i:discord.Interaction):
     try:msg=str(await refresh())
     except Exception as exc:msg="Scan failed: "+str(exc)[:300]
     await i.followup.send(msg,ephemeral=True)
+@bot.tree.command(name="recap_cheltest",description="Admin: test CHEL HEAD stats matching for a Capitals game")
+@app_commands.describe(game_id="Copy a Washington game ID from /recap_recent")
+async def recap_cheltest(i:discord.Interaction,game_id:str):
+    if not admin(i):return await i.response.send_message("Manage Server permission required.",ephemeral=True)
+    await i.response.defer(ephemeral=True)
+    with conn() as c:
+        row=c.execute("SELECT * FROM games WHERE id=? AND (away='WSH' OR home='WSH')",(game_id,)).fetchone()
+    if not row:return await i.followup.send("Unknown Capitals game ID.",ephemeral=True)
+    g=dict(row)
+    try:
+        box=await asyncio.wait_for(fetch_fallback(g),timeout=65)
+        if not box:
+            msg="CHEL HEAD did not verify a unique matching club report for this game. No player stats will be invented."
+        else:
+            members=[x for x in box["players"] if x["team"]=="WSH"]
+            parts=[]
+            for x in members[:10]:
+                stats=x["stats"]
+                parts.append(x["name"]+": "+", ".join(k+"="+str(stats[k]) for k in ("G","A","P","SV") if k in stats))
+            msg=("Verified CHEL HEAD popup: "+str(len(box["players"]))+" total players ("
+                 +str(len(members))+" Capitals).\n"+"\n".join(parts))
+    except Exception as exc:msg="CHEL HEAD test failed: "+str(exc)[:250]
+    await i.followup.send(msg[:1900],ephemeral=True)
+
 @bot.tree.command(name="recap_game",description="Admin: publish a Washington Capitals game recap")
 @app_commands.describe(game_id="From /recap_recent")
 async def recap_game(i:discord.Interaction,game_id:str):
