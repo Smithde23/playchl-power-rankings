@@ -251,13 +251,13 @@ async def narrate(txt):
         if chunk["type"]=="audio":chunks.append(chunk["data"])
     data=b"".join(chunks)
     return data if 400<len(data)<7_000_000 else None
-async def post(gid):
+async def post(gid,force=False):
     async with lock:
         with conn() as c:
             row=c.execute("SELECT * FROM games WHERE id=?",(gid,)).fetchone()
             if not row:return "Game not found."
             if not is_focus_game(row):return "Only Washington Capitals (WSH) games are eligible for recaps."
-            if row["post_id"]:return "Already posted."
+            if row["post_id"] and not force:return "Already posted. Use /recap_redo to regenerate."
             history=[dict(x) for x in c.execute("SELECT * FROM games ORDER BY date")]
         g=dict(row)
         box=None
@@ -391,6 +391,18 @@ async def recap_cheltest(i:discord.Interaction,game_id:str):
                  +str(len(members))+" Capitals).\n"+"\n".join(parts))
     except Exception as exc:msg="CHEL HEAD test failed: "+str(exc)[:250]
     await i.followup.send(msg[:1900],ephemeral=True)
+
+@bot.tree.command(name="recap_redo",description="Admin: regenerate a Washington game as an updated cinematic recap")
+@app_commands.describe(game_id="Copy the game's ID from /recap_recent")
+async def recap_redo(i:discord.Interaction,game_id:str):
+    if not admin(i):return await i.response.send_message("Manage Server permission required.",ephemeral=True)
+    await i.response.defer(ephemeral=True)
+    with conn() as con:
+        game=con.execute("SELECT id FROM games WHERE id=? AND (away='WSH' OR home='WSH')",(game_id,)).fetchone()
+    if not game:return await i.followup.send("Unknown Capitals game ID.",ephemeral=True)
+    try:result=await post(game_id,force=True)
+    except Exception as exc:result="Could not regenerate: "+str(exc)[:350]
+    await i.followup.send(result+"\nThe earlier recap is preserved; this posts an updated copy.",ephemeral=True)
 
 @bot.tree.command(name="recap_game",description="Admin: publish a Washington Capitals game recap")
 @app_commands.describe(game_id="From /recap_recent")
