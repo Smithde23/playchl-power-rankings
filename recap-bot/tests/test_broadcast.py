@@ -36,6 +36,17 @@ class BroadcastTests(unittest.TestCase):
         self.assertIn("administrative",spoken)
         self.assertNotIn("Buckley",spoken)
 
+    def test_conversational_replies_and_nonclose_factual_margin(self):
+        game=dict(GAME,a=4,h=7)
+        for i in range(30):
+            lines=make_dialogue(game,BOX,style="matchup",rng=random.Random(i))
+            words=audio_text(lines).lower()
+            self.assertNotIn("one goal separates",words)
+            self.assertNotIn("one-goal final",words)
+            self.assertNotIn("game-winning goal",words)
+            self.assertTrue(any("?" in text for _,text in lines))
+            self.assertIn("Buckley0306",audio_text(lines))
+
     def test_original_voices_are_distinct(self):
         for i in range(3):
             primary,analyst=voice_pair(i)
