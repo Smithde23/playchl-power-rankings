@@ -63,16 +63,16 @@ def card_candidates(cards,g):
 async def clickable_cards(page):
     """Find rendered match cards without relying on brittle leaf DOM shapes."""
     return await page.evaluate("""() => {
-      const possible=[...document.querySelectorAll('article, button, div, [role=button], a')];
+      const possible=[...document.querySelectorAll('ion-card, ion-card-content, ion-item, ion-button, article, button, div, [role=button], a')];
       const picked=[];
       for(const el of possible){
         const rect=el.getBoundingClientRect();
-        if(rect.width<180 || rect.height<55 || rect.height>360)continue;
+        if(rect.width<100 || rect.height<40 || rect.height>700)continue;
         const raw=(el.innerText||'').replace(/\\s+/g,' ').trim();
         const t=raw.toUpperCase();
-        if(raw.length<35 || raw.length>650 || !t.includes('WASHINGTON CAPITALS'))continue;
+        if(raw.length<30 || raw.length>1050 || !t.includes('WASHINGTON CAPITALS'))continue;
         if(!/(?:\\d+\\s*(?:hour|day|week|minute)s?\\s+ago|yesterday|today)/i.test(raw))continue;
-        if(!t.includes('CHL27') || !/\\b\\d{1,2}\\b/.test(raw))continue;
+        if(!t.includes('CHL27'))continue;
         picked.push({element:el,text:raw,size:raw.length});
       }
       // Keep the smallest qualifying container for each card; remove broad wrappers.
