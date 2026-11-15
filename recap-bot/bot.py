@@ -12,6 +12,7 @@ from stats import discover_schedule_links,fetch_box,noteworthy
 from video import render as render_video
 from chelhead import fetch_fallback
 from story import build_narration,select_style,select_voice
+from broadcast import make_dialogue,print_transcript,audio_text,synthesize_dialogue
 load_dotenv();logging.basicConfig(level=logging.INFO);log=logging.getLogger("chl.recaps")
 TEAMS={"ANA":"Anaheim","BUF":"Buffalo","CGY":"Calgary","DET":"Detroit","MIN":"Minnesota","SEA":"Seattle","SJS":"San Jose","UTAH":"Utah","VGK":"Vegas","WSH":"Washington"}
 MON={m:i+1 for i,m in enumerate("Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split())}
@@ -291,32 +292,37 @@ async def post(gid,force=False):
         with conn() as c:
             prev=c.execute("SELECT v FROM meta WHERE k='last_story_style'").fetchone()
         style=select_style(prev["v"] if prev else None)
-        narrated,style=build_narration(g,box,style=style)
+        # Original two-host dialogue. One voice handles play-by-play,
+        # the second supplies analysis based only on verified statistics.
+        dialogue=make_dialogue(g,box,style=style)
+        narrated=audio_text(dialogue)
+        transcript=print_transcript(dialogue)
         body=article(g,history,box)
-        # The written story follows the same unique angle as the broadcast voice.
-        if g["status"]!="Forfeit":
-            body="**TONIGHT'S CAPITALS STORY**\n"+narrated+"\n\n"+body
+        body=("**CAPITALS POSTGAME — TWO-PERSON BROADCAST**\n"+transcript+
+              "\n\n**FULL GAME REPORT**\n"+body)
+        # Discord limits each embed description to 4096 characters.
         body=body[:4050]
         audio=None
-        chosen_voice=select_voice(preferred=os.getenv("TTS_VOICE_OVERRIDE") or None)
-        rate=random.choice(("+1%","+3%","+5%","+7%"))
-        pitch=random.choice(("-4Hz","-2Hz","+0Hz"))
+        two_voice=False
         try:
-            audio=await asyncio.wait_for(narrate(narrated,voice=chosen_voice,rate=rate,pitch=pitch),timeout=75)
-            if not audio:log.warning("Narration returned no audio for %s voice %s",gid,chosen_voice)
+            audio=await asyncio.wait_for(
+                synthesize_dialogue(dialogue,voice_index=random.randrange(3)),timeout=175)
+            two_voice=bool(audio)
         except Exception as exc:
-            log.warning("Narration voice %s failed for %s: %s; trying default voice",chosen_voice,gid,exc)
-            try:audio=await asyncio.wait_for(narrate(narrated,voice=VOICE),timeout=55)
-            except Exception as fallback_exc:log.warning("Fallback narration failed: %s",fallback_exc)
-        log.info("Game %s story style %s voice %s rate %s pitch %s audio=%s",
-                 gid,style,chosen_voice,rate,pitch,bool(audio))
+            log.warning("Two-host TTS unavailable for %s: %s; trying single-narrator fallback",gid,exc)
+            try:
+                audio=await asyncio.wait_for(narrate(narrated,voice=VOICE),timeout=75)
+            except Exception as fallback_exc:
+                log.warning("Fallback narration failed for %s: %s",gid,fallback_exc)
+        log.info("Game %s story style=%s voices=%s exchanges=%s audio=%s",
+                 gid,style,"dual" if two_voice else "fallback",len(dialogue),bool(audio))
         channel=bot.get_channel(CHANNEL) or await bot.fetch_channel(CHANNEL)
         e=discord.Embed(title="CHL RECAP | "+g["away"]+" "+str(g["a"])+" – "+str(g["h"])+" "+g["home"],description=body,color=0x1698CE)
         e.set_image(url="attachment://recap.png")
         if box and box.get("url"):
             provider="CHEL HEAD" if box.get("source")=="chelhead" else "PlayCHL"
             e.add_field(name="Verified player statistics",value="[View "+provider+" source]("+box["url"]+")",inline=False)
-        e.set_footer(text="PlayCHL result-based report • No invented statistics or play-by-play")
+        e.set_footer(text="Verified PlayCHL / CHEL HEAD data • Original broadcast voices • No invented game events")
         attachments=[discord.File(io.BytesIO(graphic(g,box)),filename="recap.png")]
         motion=await render_video(g,box,audio)
         if motion:attachments.append(discord.File(io.BytesIO(motion),filename="capitals-cinematic-recap.mp4"))
