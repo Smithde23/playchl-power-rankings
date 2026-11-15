@@ -12,7 +12,7 @@ from stats import discover_schedule_links,fetch_box,noteworthy
 from video import render as render_video
 from chelhead import fetch_fallback
 from story import build_narration,select_style,select_voice
-from broadcast import make_dialogue,print_transcript,audio_text,synthesize_dialogue
+from broadcast import make_dialogue,print_transcript,audio_text,synthesize_dialogue,PAIRS
 load_dotenv();logging.basicConfig(level=logging.INFO);log=logging.getLogger("chl.recaps")
 TEAMS={"ANA":"Anaheim","BUF":"Buffalo","CGY":"Calgary","DET":"Detroit","MIN":"Minnesota","SEA":"Seattle","SJS":"San Jose","UTAH":"Utah","VGK":"Vegas","WSH":"Washington"}
 MON={m:i+1 for i,m in enumerate("Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split())}
@@ -306,7 +306,7 @@ async def post(gid,force=False):
         two_voice=False
         try:
             audio=await asyncio.wait_for(
-                synthesize_dialogue(dialogue,voice_index=random.randrange(3)),timeout=175)
+                synthesize_dialogue(dialogue,voice_index=random.randrange(len(PAIRS))),timeout=175)
             two_voice=bool(audio)
         except Exception as exc:
             log.warning("Two-host TTS unavailable for %s: %s; trying single-narrator fallback",gid,exc)
