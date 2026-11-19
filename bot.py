@@ -138,6 +138,115 @@ async def ticker():
 @ticker.before_loop
 async def before_ticker():await bot.wait_until_ready()
 
+
+# Unofficial PlayCHL Vezina leaderboard, sourced from the published goalie table.
+# Statistics are never inferred from team final scores.
+def _vezina_number(row, *keys):
+    for key in keys:
+        raw=str(row.get(key,'')).strip().replace(',','').replace('%','')
+        if not raw or raw in ('-','—','N/A'):continue
+        try:return float(raw)
+        except ValueError:continue
+    return None
+
+async def _vezina_goalies():
+    from playwright.async_api import async_playwright
+    async with async_playwright() as p:
+        browser=await p.chromium.launch(headless=True,args=['--no-sandbox'])
+        try:
+            page=await browser.new_page()
+            response=await page.goto('https://playchl.com/statistics',wait_until='domcontentloaded',timeout=45000)
+            if not response or response.status>=400:
+                raise RuntimeError('PlayCHL statistics page unavailable')
+            tab=page.get_by_role('button',name='Goalies',exact=True)
+            if await tab.count()==0:tab=page.get_by_text('Goalies',exact=True)
+            await tab.first.click(timeout=12000)
+            await page.locator('table tbody tr').first.wait_for(timeout=15000)
+            tables=await page.locator('table').evaluate_all("""els => els.map(t => ({
+                headers:[...t.querySelectorAll('thead th')].map(e=>e.innerText.trim().toUpperCase()),
+                rows:[...t.querySelectorAll('tbody tr')].map(tr=>[...tr.querySelectorAll('th,td')].map(e=>e.innerText.trim()))
+            }))""")
+        finally:
+            await browser.close()
+    records=[]
+    for table in tables:
+        headers=table['headers']
+        if not any(k in headers for k in ('PLAYER','NAME','GAMERTAG')):continue
+        for cells in table['rows']:
+            if len(cells)<len(headers):continue
+            row=dict(zip(headers,cells))
+            name=next((row[k].strip() for k in ('PLAYER','NAME','GAMERTAG') if row.get(k,'').strip()),'')
+            gp=_vezina_number(row,'GP')
+            sv=_vezina_number(row,'SV%','SAVE%','SAVE %','SAVE PCT')
+            gaa=_vezina_number(row,'GAA')
+            if name and gp is not None and sv is not None and gaa is not None:
+                records.append(row)
+    if not records:raise RuntimeError('No goalie rows with GP, SV% and GAA were found on PlayCHL')
+    return records
+
+def _vezina_rank(records,minimum_games=10):
+    # Choose a single published season row per player; never add duplicate totals.
+    unique={}
+    for row in records:
+        name=next((row.get(k,'').strip() for k in ('PLAYER','NAME','GAMERTAG') if row.get(k,'').strip()),'')
+        team=row.get('TEAM','').strip()
+        key=(name.casefold(),team.casefold())
+        if key not in unique or (_vezina_number(row,'GP') or 0)>(_vezina_number(unique[key],'GP') or 0):
+            unique[key]=row
+    eligible=[r for r in unique.values() if (_vezina_number(r,'GP') or 0)>=minimum_games]
+    if not eligible:return []
+    # Score each category relative to the eligible field. Only award points
+    # for statistics actually published; renormalize the available weights.
+    categories=[('SV%',('SV%','SAVE%','SAVE %','SAVE PCT'),.35,True),
+                ('GAA',('GAA',),.25,False),
+                ('W',('W','WINS'),.15,True),
+                ('SO',('SO','SHUTOUTS'),.10,True),
+                ('SA',('SA','SHOTS AGAINST','SHOTS FACED'),.10,True),
+                ('GP',('GP',),.05,True)]
+    scored=[]
+    for row in eligible:
+        total=weight_sum=0.0
+        for label,keys,weight,higher_better in categories:
+            values=[_vezina_number(r,*keys) for r in eligible]
+            if any(v is None for v in values):continue
+            low,high=min(values),max(values)
+            v=_vezina_number(row,*keys)
+            scaled=(v-low)/(high-low) if high>low else 1.0
+            if not higher_better:scaled=1-scaled if high>low else 1.0
+            total+=weight*scaled
+            weight_sum+=weight
+        scored.append((round(100*total/weight_sum,1) if weight_sum else 0,row))
+    return sorted(scored,key=lambda item:(-item[0],-(_vezina_number(item[1],'SV%') or 0),_vezina_number(item[1],'GAA') or 999))
+
+@bot.tree.command(name='vezina',description='Post PlayCHL top five Vezina Trophy goalie candidates')
+@app_commands.describe(minimum_games='Minimum games played to qualify (default 10)')
+async def vezina(i:discord.Interaction,minimum_games:app_commands.Range[int,1,100]=10):
+    await i.response.defer(thinking=True)
+    try:
+        records=await _vezina_goalies()
+        ranked=_vezina_rank(records,minimum_games)
+        if not ranked:
+            return await i.followup.send(f'No goalies currently meet the {minimum_games}-game minimum. No trophy leader has been declared.')
+        embed=discord.Embed(title='🏆 PlayCHL Vezina Trophy — Top 5',
+            description=f'Unofficial performance-based goalie rankings • Minimum {minimum_games} GP\\n'
+                        'Weights: SV% 35%, GAA 25%, W 15%, SO 10%, shots faced 10%, GP 5%. '
+                        'Categories missing from the published table are excluded and remaining weights rescaled.',
+            color=discord.Color.gold(),url='https://playchl.com/statistics')
+        for index,(score,row) in enumerate(ranked[:5],1):
+            name=next((row.get(k,'').strip() for k in ('PLAYER','NAME','GAMERTAG') if row.get(k,'').strip()),'Unknown')
+            details=[]
+            for label,keys in [('GP',('GP',)),('SV%',('SV%',)),('GAA',('GAA',)),
+                               ('W',('W','WINS')),('SO',('SO','SHUTOUTS')),('SA',('SA',))]:
+                value=_vezina_number(row,*keys)
+                if value is not None:details.append(f'{label} {value:g}')
+            embed.add_field(name=f'#{index} {name} • {row.get("TEAM","Unknown team")} — {score:.1f}/100',
+                value=' · '.join(details) or 'No published details',inline=False)
+        embed.set_footer(text='Source: PlayCHL goalie table • Scores are relative to eligible goalies • Not an official league award')
+        await i.followup.send(embed=embed,allowed_mentions=discord.AllowedMentions.none())
+    except Exception as exc:
+        log.exception('Vezina leaderboard failed')
+        await i.followup.send(f'Could not retrieve verified goalie stats: {str(exc)[:250]}')
+    
 @bot.tree.command(name='powerrefresh',description='Admin: refresh completed PlayCHL game scores')
 async def powerrefresh(i:discord.Interaction):
     if not await require_admin(i):return
